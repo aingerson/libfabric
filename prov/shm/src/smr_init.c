@@ -35,6 +35,18 @@
 #include <ofi_prov.h>
 #include "smr.h"
 
+#ifdef XPMEM_ACTIVE
+#include <xpmem.h>
+#endif
+
+struct smr_env smr_env = {
+	.use_xpmem	= 0,
+};
+
+static void smr_init_env(void)
+{
+	fi_param_get_bool(&smr_prov, "use_xpmem", &smr_env.use_xpmem);
+}
 
 static void smr_resolve_addr(const char *node, const char *service,
 			     char **addr, size_t *addrlen)
@@ -60,6 +72,21 @@ static void smr_resolve_addr(const char *node, const char *service,
 	*addr = strdup(temp_name);
 	*addrlen = strlen(*addr);
 }
+
+#ifdef XPMEM_ACTIVE
+static void smr_test_xpmem()
+{
+	int temp;
+	xpmem_segid_t seg;
+
+	printf("Testing xpmem...\n");
+	seg = xpmem_make(&temp, sizeof(temp), XPMEM_PERMIT_MODE, (void *) 0666);
+	if (seg < 0)
+		printf("ERROR with xpmem_mame\n");
+	else
+		printf("xpmem_make OK\n");
+}
+#endif
 
 static int smr_getinfo(uint32_t version, const char *node, const char *service,
 		       uint64_t flags, const struct fi_info *hints,
@@ -101,6 +128,20 @@ static int smr_getinfo(uint32_t version, const char *node, const char *service,
 			cur->ep_attr->max_order_war_size = 0;
 		}
 	}
+
+#ifdef XPMEM_ACTIVE
+	printf("xpmem avail\n");
+	smr_test_xpmem();
+#else
+	printf("xpmem not avail\n");
+#endif
+
+#ifdef CMA_ACTIVE
+	printf("cma avail\n");
+#else
+	printf("cma not avail\n");
+#endif
+
 	return 0;
 }
 
@@ -126,5 +167,10 @@ struct util_prov smr_util_prov = {
 
 SHM_INI
 {
+	fi_param_define(&smr_prov, "use_xpmem", FI_PARAM_BOOL,
+			"Whether to use XPMEM over CMA when possible "
+			"(default: no)");
+	smr_init_env();
+
 	return &smr_prov;
 }

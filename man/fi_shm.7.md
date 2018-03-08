@@ -111,7 +111,11 @@ No support for counters.
 
 # RUNTIME PARAMETERS
 
-No runtime parameters are currently defined.
+The *shm* provider checks for the following environment variables:
+
+*FI_SHM_USE_XPMEM*
+: SHM requires the use of either CMA or XPMEM. If SI_SMR_USE_XPMEM is set to 1,
+  the provider will select XPMEM or CMA.
 
 # SEE ALSO
 

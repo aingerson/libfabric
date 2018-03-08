@@ -60,12 +60,6 @@ AC_DEFUN([FI_GNI_CONFIGURE],[
         xpmem_happy=0
         kdreg_happy=0
 
-
-        AC_ARG_ENABLE([xpmem],
-                      [AS_HELP_STRING([--enable-xpmem],
-                                      [Enable xpmem (gni provider) @<:@default=yes@:>@])],
-                      )
-
         AC_ARG_ENABLE([ugni-static],
                       [AS_HELP_STRING([--enable-ugni-static],
                                       [Enable static linking with uGNI.  Recommended for KNL.])],

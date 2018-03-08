@@ -242,6 +242,15 @@ AM_CONDITIONAL([EMBEDDED], [test x"$enable_embedded" = x"yes"])
 
 AM_CONDITIONAL(HAVE_LD_VERSION_SCRIPT, test "$ac_cv_version_script" = "yes")
 
+dnl Handle xpmem
+AC_ARG_ENABLE([xpmem],
+              [AS_HELP_STRING([--enable-xpmem@<:@=yes|no|PATH@:>@],
+                              [Enable xpmem (gni and shm providers) @<:@default=yes@:>@
+			       (yes: enabled xpmem; no: disable xpmem;
+				PATH: enable xpmem and use xpmem installed under PATH)])],
+              )
+
+
 dnl Disable symbol versioning when -ipo is in CFLAGS or ipo is disabled by icc.
 dnl The gcc equivalent ipo (-fwhole-program) seems to work fine.
 AS_CASE([$CFLAGS],

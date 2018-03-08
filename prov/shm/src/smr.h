@@ -67,9 +67,14 @@
 #define SMR_MAJOR_VERSION 1
 #define SMR_MINOR_VERSION 0
 
+struct smr_env {
+	int use_xpmem;
+};
+
 extern struct fi_provider smr_prov;
 extern struct fi_info smr_info;
 extern struct util_prov smr_util_prov;
+extern struct smr_env smr_env;
 
 int smr_fabric(struct fi_fabric_attr *attr, struct fid_fabric **fabric,
 		void *context);
@@ -217,6 +222,7 @@ void smr_format_iov(struct smr_cmd *cmd, fi_addr_t peer_id,
 		uint32_t op, uint64_t tag, uint64_t data, uint64_t op_flags,
 		void *context, struct smr_region *smr, struct smr_resp *resp,
 		struct smr_cmd *pend);
+int smr_check_make_xpmem(struct iovec *iov, size_t count);
 
 int smr_tx_comp(struct smr_ep *ep, void *context, uint64_t flags, uint64_t err);
 int smr_tx_comp_signal(struct smr_ep *ep, void *context, uint64_t flags,

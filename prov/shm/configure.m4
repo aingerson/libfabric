@@ -11,6 +11,8 @@ AC_DEFUN([FI_SHM_CONFIGURE],[
 	# Determine if we can support the shm provider
 	shm_happy=0
 	cma_happy=0
+	xpmem_happy=0
+
 	AS_IF([test x"$enable_shm" != x"no"],
 	      [
 	       # check if CMA support are present
@@ -18,10 +20,40 @@ AC_DEFUN([FI_SHM_CONFIGURE],[
 			     [cma_happy=1],
 			     [cma_happy=0])
 
+	       AS_IF([test $cma_happy -eq 1],
+		     [AC_DEFINE([CMA_ACTIVE], [1],
+				[Define if CMA support is available])])
+	
 	       # check if SHM support are present
 	       AC_CHECK_FUNC([shm_open],
 			     [shm_happy=1],
 			     [shm_happy=0])
+
+               AS_IF([test "$enable_xpmem" = "no"],
+		     [xpmem_happy=0],
+		     [xpmem_happy=1])
+
+	       AS_IF([test $xpmem_happy -eq 1 -a "$enable_xpmem" != "yes"],
+		      [CPPFLAGS="$CPPFLAGS -I$enable_xpmem/include"
+		       LDFLAGS="$LDFLAGS -L$enable_xpmem/lib"],
+		      [])
+
+	       # check if XPMEM support is present
+	       AS_IF([test $xpmem_happy -eq 1],
+		     [FI_CHECK_PACKAGE([xpmem],
+				[xpmem.h],
+	 			[xpmem],
+				[xpmem_make],
+				[],
+				[],
+				[],
+				[],
+				[xpmem_happy=0])])
+
+	       AS_IF([test $xpmem_happy -eq 1],
+		     [AC_DEFINE([XPMEM_ACTIVE], [1],
+				[Define if XPMEM support is available])],
+		     [])
 
 	       # look for shm_open in librt if not already present
 	       AS_IF([test $shm_happy -eq 0],
@@ -37,5 +69,6 @@ AC_DEFUN([FI_SHM_CONFIGURE],[
 	      ])
 
 	AS_IF([test $shm_happy -eq 1 && \
-	       test $cma_happy -eq 1], [$1], [$2])
+	       [test $cma_happy -eq 1 || \
+		test $xpmem_happy -eq 1]], [$1], [$2])
 ])
