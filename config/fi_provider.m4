@@ -174,6 +174,7 @@ dnl
 dnl Arguments:
 dnl
 dnl $1: directory to check
+dnl $2: prefix to set output values $2_PREFIX and $2_LIBDIR
 dnl
 AC_DEFUN([FI_CHECK_PREFIX_DIR],[
 	# Check that the base directory exists
