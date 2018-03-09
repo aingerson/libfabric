@@ -249,7 +249,10 @@ AC_ARG_ENABLE([xpmem],
 			       (yes: enabled xpmem; no: disable xpmem;
 				PATH: enable xpmem and use xpmem installed under PATH)])],
               )
-
+AS_CASE([$enable_xpmem],
+	[yes|no], [],
+	[FI_CHECK_PREFIX_DIR([$enable_xpmem], [xpmem])]
+	)
 
 dnl Disable symbol versioning when -ipo is in CFLAGS or ipo is disabled by icc.
 dnl The gcc equivalent ipo (-fwhole-program) seems to work fine.

@@ -16,13 +16,18 @@ _shm_files = \
 
 if HAVE_SHM_DL
 pkglib_LTLIBRARIES += libshm-fi.la
+libshm_fi_la_CPPFLAGS = 		\
+	-I$(top_srcdir)/include		\
+	$(AM_CPPFLAGS) $(xpmem_CPPFLAGS)
 libshm_fi_la_SOURCES = $(_shm_files) $(common_srcs)
-libshm_fi_la_LIBADD = $(linkback) $(shm_lib_LIBS)
-libshm_fi_la_LDFLAGS = -module -avoid-version -shared -export-dynamic
+libshm_fi_la_LIBADD = $(linkback) $(shm_lib_LIBS) $(xpmem_LIBS)
+libshm_fi_la_LDFLAGS = $(xpmem_LDFLAGS) -module -avoid-version -shared -export-dynamic
 libshm_fi_la_DEPENDENCIES = $(linkback)
 else !HAVE_SHM_DL
+src_libfabric_la_CPPFLAGS += $(xpmem_CPPFLAGS)
 src_libfabric_la_SOURCES += $(_shm_files)
-src_libfabric_la_LIBADD += $(shm_lib_LIBS)
+src_libfabric_la_LIBADD += $(shm_lib_LIBS) $(xpmem_LIBS)
+src_libfabric_la_LDFLAGS += $(xpmem_LDFLAGS)
 endif !HAVE_SHM_DL
 
 prov_install_man_pages += man/man7/fi_shm.7

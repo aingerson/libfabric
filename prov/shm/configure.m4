@@ -35,11 +35,6 @@ AC_DEFUN([FI_SHM_CONFIGURE],[
 		     [want_xpmem=1
 		      xpmem_happy=1])
 
-	       AS_IF([test $xpmem_happy -eq 1 -a "$enable_xpmem" != "yes"],
-		      [CPPFLAGS="$CPPFLAGS -I$enable_xpmem/include"
-		       LDFLAGS="$LDFLAGS -L$enable_xpmem/lib"],
-		      [])
-
 	       # check if XPMEM support is present
 	       AS_IF([test $xpmem_happy -eq 1],
 		     [FI_CHECK_PACKAGE([xpmem],
@@ -47,8 +42,8 @@ AC_DEFUN([FI_SHM_CONFIGURE],[
 	 			[xpmem],
 				[xpmem_make],
 				[],
-				[],
-				[],
+				[$xpmem_PREFIX],
+				[$xpmem_LIBDIR],
 				[],
 				[xpmem_happy=0])])
 
@@ -61,6 +56,10 @@ AC_DEFUN([FI_SHM_CONFIGURE],[
 	       AS_IF([test $want_xpmem -eq 1 && test $xpmem_happy -eq 0],
 		     [AC_MSG_WARN([xpmem support requested, but is unavailable])
 		      AC_MSG_ERROR([Cannot continue])])
+
+	       AC_SUBST(xpmem_CPPFLAGS)
+	       AC_SUBST(xpmem_LDFLAGS)
+	       AC_SUBST(xpmem_LIBS)
 
 	       # look for shm_open in librt if not already present
 	       AS_IF([test $shm_happy -eq 0],
