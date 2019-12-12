@@ -53,6 +53,12 @@
 #include <arpa/inet.h>
 #include <assert.h>
 
+char *tx_barrier;
+char *rx_barrier;
+struct fid_mr *mr_barrier;
+struct fi_mr_desc *mr_desc_barrier;
+struct fi_context **barrier_ctx;
+
 struct pattern_ops *pattern;
 struct multinode_xfer_state state;
 struct multi_xfer_method method;
@@ -86,7 +92,7 @@ static int multi_setup_fabric(int argc, char **argv)
 		hints->caps = FI_MSG;
 	} else if (pm_job.transfer_method == multi_rma) {
 		hints->caps = FI_MSG | FI_RMA;
-		if (strcmp("verbs;ofi_rxd", hints->fabric_attr->prov_name) == 0)
+		if (strstr("verbs;ofi_rxd", hints->fabric_attr->prov_name) == 0)
 			hints->domain_attr->mr_mode &= ~FI_MR_VIRT_ADDR;
 	} else {
 		printf("Not a valid cabability\n");
@@ -387,6 +393,64 @@ int multi_rma_wait()
 	return 0;
 }
 
+int multi_reg_barrier()
+{
+	int ret, i = 0;
+	int barrier_size = sizeof(char) * tx_size * pm_job.num_ranks;
+	uint64_t access = ft_info_to_mr_access(fi);
+
+	tx_barrier = malloc(2 * barrier_size);
+	rx_barrier = (tx_barrier + barrier_size);
+
+	ret = fi_mr_reg(domain, tx_barrier, 2 * barrier_size, 
+	                access, 0, FT_MR_KEY - 1, 0, &mr_barrier, NULL);
+	if (ret)
+		return ret;
+	
+	mr_desc_barrier = fi_mr_desc(mr_barrier);
+	if (!mr_desc_barrier)
+		return -FI_ENODATA;
+
+	barrier_ctx = malloc(sizeof(**barrier_ctx));
+	for (i = 0; i < pm_job.num_ranks * 2; i++) {
+		barrier_ctx[i] = malloc(sizeof(*barrier_ctx));
+	}
+
+	return ret;
+}
+
+int send_recv_barrier(int sync)
+{
+	int ret, i;
+
+	for (i = 0; i < pm_job.num_ranks; i++) {
+		snprintf(tx_barrier + tx_size * i, tx_size, "%zu: %i", 
+		         pm_job.my_rank, sync);
+		ret = ft_post_tx_buf(ep, pm_job.fi_addrs[i], tx_size, 
+				     NO_CQ_DATA, barrier_ctx[i],
+		                     tx_barrier + tx_size * i, &mr_desc_barrier, 0);
+		if (ret)
+			return ret;
+	}
+	for(i = 0; i < pm_job.num_ranks; i++) {
+
+		ret = ft_post_rx_buf(ep, opts.transfer_size,
+			     barrier_ctx[i + pm_job.num_ranks],
+			     (rx_barrier + tx_size * i),
+			     mr_desc_barrier, 0);
+		if (ret)
+			return ret;
+	}
+
+	ret = ft_get_tx_comp(tx_seq);
+	if (ret)
+		return ret;
+
+	ret = ft_get_rx_comp(rx_seq);	
+
+	return ret;
+}
+
 static inline void multi_init_state()
 {
 	state.cur_source = PATTERN_NO_CURRENT;
@@ -422,20 +486,24 @@ static int multi_run_test()
 			ret = method.wait();
 			if (ret)
 				return ret;
-
-			pm_barrier();
 		}
+
+		ret = send_recv_barrier(iter);
+		if (ret)
+			return ret;
 	}
 	return 0;
 }
 
 static void pm_job_free_res()
 {
-
 	free(pm_job.names);
-
 	free(pm_job.fi_addrs);
 	free(pm_job.multi_iovs);
+
+	//free(barrier_ctx);
+
+	FT_CLOSE_FID(mr_barrier);
 }
 
 int multinode_run_tests(int argc, char **argv)
@@ -446,6 +514,12 @@ int multinode_run_tests(int argc, char **argv)
 	ret = multi_setup_fabric(argc, argv);
 	if (ret)
 		return ret;
+	
+	ret = multi_reg_barrier();
+	if (ret) {
+		printf("bad barrier reg: %i", ret);
+		return ret;
+	}
 
 	for (i = 0; i < NUM_TESTS && !ret; i++) {
 		printf("starting %s... ", patterns[i].name);
@@ -455,9 +529,12 @@ int multinode_run_tests(int argc, char **argv)
 			printf("failed\n");
 		else
 			printf("passed\n");
+
+		fflush(stdout);
 	}
 
 	pm_job_free_res();
 	ft_free_res();
 	return ft_exit_code(ret);
 }
+
