@@ -54,32 +54,32 @@ static char **recv_bufs;
 static struct fi_context *recv_ctx;
 static struct fi_context *send_ctx;
 static fi_addr_t *remote_addr;
-int num_eps = 3;
+int num_eps = 128;
 
 
 static int alloc_multi_ep_res()
 {
-	char *rx_buf_ptr;
-	int i;
-
+//	char *rx_buf_ptr;
+//	int i;
+//
 	eps = calloc(num_eps, sizeof(*eps));
 	remote_addr = calloc(num_eps, sizeof(*remote_addr));
-	send_bufs = calloc(num_eps, sizeof(*send_bufs));
-	recv_bufs = calloc(num_eps, sizeof(*recv_bufs));
-	send_ctx = calloc(num_eps, sizeof(*send_ctx));
-	recv_ctx = calloc(num_eps, sizeof(*recv_ctx));
-	data_bufs = calloc(num_eps * 2, opts.transfer_size);
-
-	if (!eps || !remote_addr || !send_bufs || !recv_bufs ||
-	    !send_ctx || !recv_ctx || !data_bufs)
-		return -FI_ENOMEM;
-
-	rx_buf_ptr = data_bufs + opts.transfer_size * num_eps;
-	for (i = 0; i < num_eps; i++) {
-		send_bufs[i] = data_bufs + opts.transfer_size * i;
-		recv_bufs[i] = rx_buf_ptr + opts.transfer_size * i;
-	}
-
+//	send_bufs = calloc(num_eps, sizeof(*send_bufs));
+//	recv_bufs = calloc(num_eps, sizeof(*recv_bufs));
+//	send_ctx = calloc(num_eps, sizeof(*send_ctx));
+//	recv_ctx = calloc(num_eps, sizeof(*recv_ctx));
+//	data_bufs = calloc(num_eps * 2, opts.transfer_size);
+//
+//	if (!eps || !remote_addr || !send_bufs || !recv_bufs ||
+//	    !send_ctx || !recv_ctx || !data_bufs)
+//		return -FI_ENOMEM;
+//
+//	rx_buf_ptr = data_bufs + opts.transfer_size * num_eps;
+//	for (i = 0; i < num_eps; i++) {
+//		send_bufs[i] = data_bufs + opts.transfer_size * i;
+//		recv_bufs[i] = rx_buf_ptr + opts.transfer_size * i;
+//	}
+//
 	return 0;
 }
 
@@ -99,49 +99,49 @@ static void free_ep_res()
 	free(eps);
 }
 
-static int do_transfers(void)
-{
-	int i, ret;
-
-	for (i = 0; i < num_eps; i++) {
-		rx_buf = recv_bufs[i];
-		ret = ft_post_rx(eps[i], opts.transfer_size, &recv_ctx[i]);
-		if (ret)
-			return ret;
-	}
-
-	for (i = 0; i < num_eps; i++) {
-		if (ft_check_opts(FT_OPT_VERIFY_DATA))
-			ft_fill_buf(send_bufs[i], opts.transfer_size);
-
-		tx_buf = send_bufs[i];
-		ret = ft_post_tx(eps[i], remote_addr[i], opts.transfer_size, NO_CQ_DATA, &send_ctx[i]);
-		if (ret)
-			return ret;
-	}
-
-	ret = ft_get_tx_comp(num_eps);
-	if (ret < 0)
-		return ret;
-
-	ret = ft_get_rx_comp(num_eps);
-	if (ret < 0)
-		return ret;
-
-	if (ft_check_opts(FT_OPT_VERIFY_DATA)) {
-		for (i = 0; i < num_eps; i++) {
-			ret = ft_check_buf(recv_bufs[i], opts.transfer_size);
-			if (ret)
-				return ret;
-		}
-	}
-
-	for (i = 0; i < num_eps; i++)
-		ft_finalize_ep(eps[i]);
-
-	printf("PASSED multi ep\n");
-	return 0;
-}
+//static int do_transfers(void)
+//{
+//	int i, ret;
+//
+//	for (i = 0; i < num_eps; i++) {
+//		rx_buf = recv_bufs[i];
+//		ret = ft_post_rx(eps[i], opts.transfer_size, &recv_ctx[i]);
+//		if (ret)
+//			return ret;
+//	}
+//
+//	for (i = 0; i < num_eps; i++) {
+//		if (ft_check_opts(FT_OPT_VERIFY_DATA))
+//			ft_fill_buf(send_bufs[i], opts.transfer_size);
+//
+//		tx_buf = send_bufs[i];
+//		ret = ft_post_tx(eps[i], remote_addr[i], opts.transfer_size, NO_CQ_DATA, &send_ctx[i]);
+//		if (ret)
+//			return ret;
+//	}
+//
+//	ret = ft_get_tx_comp(num_eps);
+//	if (ret < 0)
+//		return ret;
+//
+//	ret = ft_get_rx_comp(num_eps);
+//	if (ret < 0)
+//		return ret;
+//
+//	if (ft_check_opts(FT_OPT_VERIFY_DATA)) {
+//		for (i = 0; i < num_eps; i++) {
+//			ret = ft_check_buf(recv_bufs[i], opts.transfer_size);
+//			if (ret)
+//				return ret;
+//		}
+//	}
+//
+//	for (i = 0; i < num_eps; i++)
+//		ft_finalize_ep(eps[i]);
+//
+//	printf("PASSED multi ep\n");
+//	return 0;
+//}
 
 static int setup_client_ep(struct fid_ep **ep)
 {
@@ -261,11 +261,11 @@ static int run_test(void)
 		}
 	}
 
-	tx_cq_cntr = rx_cq_cntr = 0;
-	tx_seq = rx_seq = 0;
-	ret = do_transfers();
-	if (ret)
-		return ret;
+//	tx_cq_cntr = rx_cq_cntr = 0;
+//	tx_seq = rx_seq = 0;
+//	ret = do_transfers();
+//	if (ret)
+//		return ret;
 
 	return 0;
 }
@@ -310,6 +310,7 @@ int main(int argc, char **argv)
 
 	hints->caps = FI_MSG;
 	hints->mode = FI_CONTEXT;
+	hints->domain_attr->mr_mode = opts.mr_mode;
 
 	ret = run_test();
 
