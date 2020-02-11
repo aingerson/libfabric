@@ -56,8 +56,7 @@
 char *tx_barrier;
 char *rx_barrier;
 struct fid_mr *mr_barrier;
-struct fi_mr_desc *mr_desc_barrier;
-struct fi_context **barrier_ctx;
+struct fi_context2 *barrier_tx_ctx, *barrier_rx_ctx;
 
 struct pattern_ops *pattern;
 struct multinode_xfer_state state;
@@ -393,51 +392,21 @@ int multi_rma_wait()
 	return 0;
 }
 
-int multi_reg_barrier()
-{
-	int ret, i = 0;
-	int barrier_size = sizeof(char) * tx_size * pm_job.num_ranks;
-	uint64_t access = ft_info_to_mr_access(fi);
-
-	tx_barrier = malloc(2 * barrier_size);
-	rx_barrier = (tx_barrier + barrier_size);
-
-	ret = fi_mr_reg(domain, tx_barrier, 2 * barrier_size, 
-	                access, 0, FT_MR_KEY - 1, 0, &mr_barrier, NULL);
-	if (ret)
-		return ret;
-	
-	mr_desc_barrier = fi_mr_desc(mr_barrier);
-	if (!mr_desc_barrier)
-		return -FI_ENODATA;
-
-	barrier_ctx = malloc(sizeof(**barrier_ctx));
-	for (i = 0; i < pm_job.num_ranks * 2; i++) {
-		barrier_ctx[i] = malloc(sizeof(*barrier_ctx));
-	}
-
-	return ret;
-}
-
 int send_recv_barrier(int sync)
 {
 	int ret, i;
 
 	for (i = 0; i < pm_job.num_ranks; i++) {
-		snprintf(tx_barrier + tx_size * i, tx_size, "%zu: %i", 
-		         pm_job.my_rank, sync);
-		ret = ft_post_tx_buf(ep, pm_job.fi_addrs[i], tx_size, 
-				     NO_CQ_DATA, barrier_ctx[i],
-		                     tx_barrier + tx_size * i, &mr_desc_barrier, 0);
+		ret = ft_post_tx_buf(ep, pm_job.fi_addrs[i], 0, 
+				     NO_CQ_DATA, &barrier_tx_ctx[i],
+		                     NULL, NULL, 0);
 		if (ret)
 			return ret;
 	}
 	for(i = 0; i < pm_job.num_ranks; i++) {
 
-		ret = ft_post_rx_buf(ep, opts.transfer_size,
-			     barrier_ctx[i + pm_job.num_ranks],
-			     (rx_barrier + tx_size * i),
-			     mr_desc_barrier, 0);
+		ret = ft_post_rx_buf(ep, 0, &barrier_rx_ctx[i], NULL,
+			     NULL, 0);
 		if (ret)
 			return ret;
 	}
@@ -501,9 +470,8 @@ static void pm_job_free_res()
 	free(pm_job.fi_addrs);
 	free(pm_job.multi_iovs);
 
-	//free(barrier_ctx);
-
-	FT_CLOSE_FID(mr_barrier);
+	free(barrier_tx_ctx);
+	free(barrier_rx_ctx);
 }
 
 int multinode_run_tests(int argc, char **argv)
@@ -515,11 +483,13 @@ int multinode_run_tests(int argc, char **argv)
 	if (ret)
 		return ret;
 	
-	ret = multi_reg_barrier();
-	if (ret) {
-		printf("bad barrier reg: %i", ret);
-		return ret;
-	}
+	barrier_tx_ctx = malloc(sizeof(*barrier_tx_ctx) * pm_job.num_ranks);
+	if (!barrier_tx_ctx)
+		return -FI_ENOMEM;
+
+	barrier_rx_ctx = malloc(sizeof(*barrier_rx_ctx) * pm_job.num_ranks);
+	if (!barrier_rx_ctx)
+		return -FI_ENOMEM;
 
 	for (i = 0; i < NUM_TESTS && !ret; i++) {
 		printf("starting %s... ", patterns[i].name);
