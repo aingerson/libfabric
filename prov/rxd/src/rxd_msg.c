@@ -77,7 +77,12 @@ static void rxd_progress_unexp_msg(struct rxd_ep *ep, struct rxd_x_entry *rx_ent
 {
 	struct rxd_pkt_entry *pkt_entry;
 	uint64_t num_segs = 0;
-	uint16_t curr_id = ep->peers[unexp_msg->base_hdr->peer].curr_rx_id;
+    struct rxd_peer *peer_entry;
+    
+    peer_entry = ofi_bufpool_get_ibuf(ep->peer_pool.pool, unexp_msg->base_hdr->peer);
+    assert(peer_entry->peer_addr == unexp_msg->base_hdr->peer);
+
+	uint16_t curr_id = peer_entry->curr_rx_id;
 
 	rxd_progress_op(ep, rx_entry, unexp_msg->pkt_entry, unexp_msg->base_hdr,
 			unexp_msg->sar_hdr, unexp_msg->tag_hdr,
@@ -93,11 +98,11 @@ static void rxd_progress_unexp_msg(struct rxd_ep *ep, struct rxd_x_entry *rx_ent
 		num_segs++;
 	}
 
-	if (ep->peers[unexp_msg->base_hdr->peer].curr_unexp) {
+	if (peer_entry->curr_unexp) {
 		if (!unexp_msg->sar_hdr || num_segs == unexp_msg->sar_hdr->num_segs - 1)
-			ep->peers[unexp_msg->base_hdr->peer].curr_rx_id = curr_id;
+			peer_entry->curr_rx_id = curr_id;
 		else
-			ep->peers[unexp_msg->base_hdr->peer].curr_unexp = NULL;
+			peer_entry->curr_unexp = NULL;
 	}
 
 	rxd_free_unexp_msg(unexp_msg);
@@ -137,14 +142,18 @@ static int rxd_progress_unexp_list(struct rxd_ep *ep,
 static int rxd_ep_discard_recv(struct rxd_ep *rxd_ep, void *context,
 			       struct rxd_unexp_msg *unexp_msg)
 {
+    struct rxd_peer *peer_entry;
 	uint64_t seq = unexp_msg->base_hdr->seq_no;
 	int ret;
+
+    peer_entry = ofi_bufpool_get_ibuf(rxd_ep->peer_pool.pool, unexp_msg->base_hdr->peer);
+    assert(peer_entry->peer_addr == unexp_msg->base_hdr->peer);
 
 	assert(unexp_msg->tag_hdr);
 	seq += unexp_msg->sar_hdr ? unexp_msg->sar_hdr->num_segs : 1;
 
-	rxd_ep->peers[unexp_msg->base_hdr->peer].rx_seq_no =
-			MAX(seq, rxd_ep->peers[unexp_msg->base_hdr->peer].rx_seq_no);
+	peer_entry->rx_seq_no =
+			MAX(seq, peer_entry->rx_seq_no);
 	rxd_ep_send_ack(rxd_ep, unexp_msg->base_hdr->peer);
 
 	ret = ofi_cq_write(rxd_ep->util_ep.rx_cq, context, FI_TAGGED | FI_RECV,
@@ -201,7 +210,7 @@ ssize_t rxd_ep_generic_recvmsg(struct rxd_ep *rxd_ep, const struct iovec *iov,
 	struct rxd_x_entry *rx_entry;
 	struct dlist_entry *unexp_list, *rx_list;
 	struct rxd_unexp_msg *unexp_msg;
-
+    struct rxd_fiaddr_entry *entry;
 	assert(iov_count <= RXD_IOV_LIMIT);
 	assert(!(rxd_flags & RXD_MULTI_RECV) || iov_count == 1);
 	assert(!(flags & FI_PEEK) || op == RXD_TAGGED);
@@ -228,10 +237,12 @@ ssize_t rxd_ep_generic_recvmsg(struct rxd_ep *rxd_ep, const struct iovec *iov,
 	}
 
 	if (!(flags & FI_DISCARD)) {
+        HASH_FIND(hh, rxd_ep->fi_rxdaddr_hash, (void*)&addr, sizeof(fi_addr_t), entry);
+
 		rx_entry = rxd_rx_entry_init(rxd_ep, iov, iov_count, tag, ignore, context,
 					(rxd_ep->util_ep.caps & FI_DIRECTED_RECV &&
-					addr != FI_ADDR_UNSPEC) ?
-					rxd_ep_av(rxd_ep)->fi_addr_table[addr] :
+					addr != FI_ADDR_UNSPEC && entry != NULL) ?
+					entry->rxd_addr :
 					FI_ADDR_UNSPEC, op, rxd_flags);
 		if (!rx_entry) {
 			ret = -FI_EAGAIN;
@@ -348,6 +359,8 @@ ssize_t rxd_ep_generic_inject(struct rxd_ep *rxd_ep, const struct iovec *iov,
 {
 	struct rxd_x_entry *tx_entry;
 	ssize_t ret = -FI_EAGAIN;
+    struct rxd_fiaddr_entry *entry;
+    struct rxd_peer *peer_entry;
 	fi_addr_t rxd_addr;
 
 	assert(iov_count <= RXD_IOV_LIMIT);
@@ -359,7 +372,11 @@ ssize_t rxd_ep_generic_inject(struct rxd_ep *rxd_ep, const struct iovec *iov,
 	if (ofi_cirque_isfull(rxd_ep->util_ep.tx_cq->cirq))
 		goto out;
 
-	rxd_addr = rxd_ep_av(rxd_ep)->fi_addr_table[addr];
+    HASH_FIND(hh, rxd_ep->fi_rxdaddr_hash, (void*)&addr, sizeof(addr), entry);
+    if(!entry)
+        goto out;
+    assert(entry->fi_addr == addr);   
+	rxd_addr = entry->rxd_addr;
 	ret = rxd_send_rts_if_needed(rxd_ep, rxd_addr);
 	if (ret)
 		goto out;
@@ -370,8 +387,9 @@ ssize_t rxd_ep_generic_inject(struct rxd_ep *rxd_ep, const struct iovec *iov,
 		ret = -FI_EAGAIN;
 		goto out;
 	}
-
-	if (rxd_ep->peers[rxd_addr].peer_addr != FI_ADDR_UNSPEC)
+    peer_entry = ofi_bufpool_get_ibuf(rxd_ep->peer_pool.pool, rxd_addr);
+    assert(peer_entry->peer_addr == rxd_addr);
+	if (peer_entry->peer_addr != FI_ADDR_UNSPEC)
 		(void) rxd_start_xfer(rxd_ep, tx_entry);
 
 out:
@@ -387,6 +405,8 @@ ssize_t rxd_ep_generic_sendmsg(struct rxd_ep *rxd_ep, const struct iovec *iov,
 	struct rxd_x_entry *tx_entry;
 	ssize_t ret = -FI_EAGAIN;
 	fi_addr_t rxd_addr;
+    struct rxd_fiaddr_entry *entry;
+    struct rxd_peer *peer_entry;
 
 	assert(iov_count <= RXD_IOV_LIMIT);
 
@@ -398,8 +418,12 @@ ssize_t rxd_ep_generic_sendmsg(struct rxd_ep *rxd_ep, const struct iovec *iov,
 
 	if (ofi_cirque_isfull(rxd_ep->util_ep.tx_cq->cirq))
 		goto out;
+    
+    HASH_FIND(hh, rxd_ep->fi_rxdaddr_hash, (void*)&addr, sizeof(addr), entry);
+    if(!entry)
+        goto out;
 
-	rxd_addr = rxd_ep_av(rxd_ep)->fi_addr_table[addr];
+	rxd_addr = entry->rxd_addr;
 	ret = rxd_send_rts_if_needed(rxd_ep, rxd_addr);
 	if (ret)
 		goto out;
@@ -408,8 +432,11 @@ ssize_t rxd_ep_generic_sendmsg(struct rxd_ep *rxd_ep, const struct iovec *iov,
 					 tag, data, rxd_flags, context);
 	if (!tx_entry)
 		goto out;
+    
+    peer_entry = ofi_bufpool_get_ibuf(rxd_ep->peer_pool.pool, rxd_addr);
+    assert(peer_entry->peer_addr == rxd_addr);
 
-	if (rxd_ep->peers[rxd_addr].peer_addr == FI_ADDR_UNSPEC)
+	if (peer_entry->peer_addr == FI_ADDR_UNSPEC)
 		goto out;
 
 	ret = rxd_start_xfer(rxd_ep, tx_entry);
