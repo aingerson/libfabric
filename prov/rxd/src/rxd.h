@@ -69,6 +69,7 @@
 #define RXD_BUF_POOL_ALIGNMENT	16
 #define RXD_TX_POOL_CHUNK_CNT	1024
 #define RXD_RX_POOL_CHUNK_CNT	1024
+#define RXD_PEER_POOL_CHUNK_CNT 1024
 #define RXD_MAX_PENDING		128
 #define RXD_MAX_PKT_RETRY	50
 
@@ -120,6 +121,9 @@ struct rxd_domain {
 struct rxd_peer {
 	struct dlist_entry entry;
 	fi_addr_t peer_addr;
+    // new entry
+    fi_addr_t fi_addr;
+    fi_addr_t dg_addr;
 	uint64_t tx_seq_no;
 	uint64_t rx_seq_no;
 	uint64_t last_rx_ack;
@@ -148,17 +152,12 @@ struct rxd_addr {
 };
 
 struct rxd_av {
-	struct util_av util_av;
-	struct fid_av *dg_av;
-	struct ofi_rbmap rbmap;
-	int fi_addr_idx;
-	int rxd_addr_idx;
 
+	struct util_av util_av;
+	struct fid_av *dg_av; 
 	int dg_av_used;
 	size_t dg_addrlen;
 
-	fi_addr_t *fi_addr_table;
-	struct rxd_addr *rxd_addr_table;
 };
 
 struct rxd_cq;
@@ -172,12 +171,26 @@ struct rxd_cq {
 enum rxd_pool_type {
 	RXD_BUF_POOL_RX,
 	RXD_BUF_POOL_TX,
+    RXD_BUF_POOL_PEERS
 };
 
 struct rxd_buf_pool {
 	enum rxd_pool_type type;
 	struct ofi_bufpool *pool;
 	struct rxd_ep *rxd_ep;
+};
+
+struct rxd_fiaddr_entry {
+    
+    fi_addr_t fi_addr; //key
+    fi_addr_t rxd_addr; //value
+    UT_hash_handle hh; 
+};
+struct rxd_epname_entry {
+    
+    uint8_t addr[RXD_NAME_LENGTH]; //key
+    fi_addr_t rxd_addr; //value
+    UT_hash_handle hh; 
 };
 
 struct rxd_ep {
@@ -215,8 +228,13 @@ struct rxd_ep {
 	struct dlist_entry active_peers;
 	struct dlist_entry rts_sent_list;
 	struct dlist_entry ctrl_pkts;
+    // new
+    struct rxd_fiaddr_entry *fi_rxdaddr_hash;
+    struct rxd_epname_entry *ep_rxdaddr_hash;
+    struct rxd_buf_pool peer_pool;
+   // struct ofi_rbmap rbmap;
 
-	struct rxd_peer peers[];
+	//struct rxd_peer peers[];
 };
 
 static inline struct rxd_domain *rxd_ep_domain(struct rxd_ep *ep)
@@ -420,6 +438,20 @@ int rxd_query_atomic(struct fid_domain *domain, enum fi_datatype datatype,
 int rxd_av_insert_dg_addr(struct rxd_av *av, const void *addr,
 			  fi_addr_t *dg_fiaddr, uint64_t flags,
 			  void *context);
+int rxd_av_insert_fi_addr(struct rxd_av *av, fi_addr_t *dg_addr,
+              fi_addr_t *fi_addr, uint64_t flags);
+
+/* AV/Peer subfunctions */
+struct rxd_peer* rxd_get_peer_entry(struct rxd_ep *ep, void *addr);              
+int rxd_fiaddr_hash_insert(struct rxd_ep *ep, fi_addr_t *fi_addr,
+              fi_addr_t *rxd_addr);
+int rxd_epaddr_hash_insert(struct rxd_ep *ep, void *addr,
+              fi_addr_t *rxd_addr);
+int rxd_update_peers(struct util_av *util_av, void *dg_addr,
+              fi_addr_t fi_addr, void *arg);
+
+
+
 
 /* Pkt resource functions */
 int rxd_ep_post_buf(struct rxd_ep *ep);
