@@ -1217,8 +1217,8 @@ int rxd_endpoint(struct fid_domain *domain, struct fi_info *info,
 				 dg_info->ep_attr->msg_prefix_size : 0;
 	rxd_ep->rx_prefix_size = dg_info->rx_attr->mode & FI_MSG_PREFIX ?
 				 dg_info->ep_attr->msg_prefix_size : 0;
-	rxd_ep->rx_size = MIN(dg_info->rx_attr->size, info->rx_attr->size);
-	rxd_ep->tx_size = MIN(dg_info->tx_attr->size, info->tx_attr->size);
+	rxd_ep->rx_size = info->rx_attr->size;
+	rxd_ep->tx_size = info->tx_attr->size;
 	rxd_ep->tx_msg_avail = rxd_ep->tx_size;
 	rxd_ep->rx_msg_avail = rxd_ep->rx_size;
 	rxd_ep->tx_rma_avail = rxd_ep->tx_size;
