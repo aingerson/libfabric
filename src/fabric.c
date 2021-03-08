@@ -423,7 +423,7 @@ static void ofi_ordered_provs_init(void)
 		/* These are hooking providers only.  Their order
 		 * doesn't matter
 		 */
-		"ofi_hook_perf", "ofi_hook_debug", "ofi_hook_noop",
+		"ofi_hook_perf", "ofi_hook_debug", "ofi_hook_noop", "ofi_hook_ze",
 	};
 	struct ofi_prov *prov;
 	int num_provs, i;
@@ -786,6 +786,7 @@ void fi_ini(void)
 
 	ofi_register_provider(HOOK_PERF_INIT, NULL);
 	ofi_register_provider(HOOK_DEBUG_INIT, NULL);
+	ofi_register_provider(HOOK_ZE_INIT, NULL);
 	ofi_register_provider(HOOK_NOOP_INIT, NULL);
 
 	ofi_init = 1;

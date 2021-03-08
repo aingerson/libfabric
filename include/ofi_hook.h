@@ -60,6 +60,7 @@ enum ofi_hook_class {
 	HOOK_NOOP,
 	HOOK_PERF,
 	HOOK_DEBUG,
+	HOOK_ZE,
 	MAX_HOOKS
 };
 

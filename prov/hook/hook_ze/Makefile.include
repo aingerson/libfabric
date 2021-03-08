@@ -1,0 +1,13 @@
+if HAVE_HOOK_ZE
+_zehook_files = \
+	prov/hook/hook_ze/src/hook_ze.c
+
+_zehook_headers = \
+	prov/hook/hook_ze/include/hook_ze.h
+
+
+src_libfabric_la_SOURCES  +=	$(_zehook_files) \
+				$(_zehook_headers)
+src_libfabric_la_CPPFLAGS +=	-I$(top_srcdir)/prov/hook/hook_ze/include
+src_libfabric_la_LIBADD	  +=	$(zehook_shm_LIBS)
+endif HAVE_HOOK_ZE
