@@ -152,6 +152,9 @@ struct hook_domain {
 	struct hook_fabric *fabric;
 };
 
+int hook_domain_init(struct fid_fabric *fabric, struct fi_info *info,
+		     struct fid_domain **domain, void *context,
+		     struct hook_domain *dom);
 int hook_domain(struct fid_fabric *fabric, struct fi_info *info,
 		struct fid_domain **domain, void *context);
 
