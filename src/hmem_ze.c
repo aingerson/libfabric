@@ -298,18 +298,20 @@ err:
 	return -FI_EIO;
 }
 
-bool ze_is_addr_valid(const void *addr)
+bool ze_is_addr_valid(const void *addr, uint64_t *device, uint64_t *flags)
 {
 	ze_result_t ze_ret;
-	ze_memory_allocation_properties_t mem_props;
-	ze_device_handle_t device;
+	ze_memory_allocation_properties_t mem_prop;
 
-	mem_props.stype = ZE_STRUCTURE_TYPE_MEMORY_ALLOCATION_PROPERTIES;
-	mem_props.pNext = NULL;
-	ze_ret = zeMemGetAllocProperties(context, addr, &mem_props,
-					 &device);
-
-	return (!ze_ret && mem_props.type == ZE_MEMORY_TYPE_DEVICE);
+	for (*device = 0; *device < num_devices; (*device)++) {
+		ze_ret = zeMemGetAllocProperties(context, addr, &mem_prop,
+						 &devices[*device]);
+		if (!ze_ret && mem_prop.type == ZE_MEMORY_TYPE_DEVICE) {
+			*flags = FI_HMEM_DEVICE_ONLY;
+			return true;
+		}
+	}
+	return false;
 }
 
 int ze_hmem_get_handle(void *dev_buf, void **handle)
@@ -412,7 +414,7 @@ int ze_hmem_copy(uint64_t device, void *dst, const void *src, size_t size)
 	return -FI_ENOSYS;
 }
 
-bool ze_is_addr_valid(const void *addr)
+bool ze_is_addr_valid(const void *addr, uint64_t *device, uint64_t *flags)
 {
 	return false;
 }

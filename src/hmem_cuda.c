@@ -340,7 +340,7 @@ int cuda_hmem_cleanup(void)
 	return FI_SUCCESS;
 }
 
-bool cuda_is_addr_valid(const void *addr)
+bool cuda_is_addr_valid(const void *addr, uint64_t *device, uint64_t *flags)
 {
 	CUresult cuda_ret;
 	unsigned int data;
@@ -350,8 +350,16 @@ bool cuda_is_addr_valid(const void *addr)
 					     (CUdeviceptr)addr);
 	switch (cuda_ret) {
 	case CUDA_SUCCESS:
-		if (data == CU_MEMORYTYPE_DEVICE)
+		if (data == CU_MEMORYTYPE_DEVICE) {
+			*device = 0;
+			cuda_ret = ofi_cuPointerGetAttribute((int *) device,
+						CU_POINTER_ATTRIBUTE_DEVICE_ORDINAL,
+						(CUdeviceptr)addr);
+			if (cuda_ret)
+				break;
+			*flags = FI_HMEM_DEVICE_ONLY;
 			return true;
+		}
 		break;
 
 	/* Returned if the buffer is not associated with the CUcontext support
@@ -440,7 +448,7 @@ int cuda_hmem_cleanup(void)
 	return -FI_ENOSYS;
 }
 
-bool cuda_is_addr_valid(const void *addr)
+bool cuda_is_addr_valid(const void *addr, uint64_t *device, uint64_t *flags)
 {
 	return false;
 }
