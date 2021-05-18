@@ -433,9 +433,11 @@ static int smr_progress_ipc(struct smr_cmd *cmd, enum fi_hmem_iface iface,
 	resp = smr_get_ptr(peer_smr, cmd->msg.hdr.src_data);
 
 	//TODO disable IPC if more than 1 interface is initialized
-	assert(iface == cmd->msg.data.ipc_info.iface || iface == FI_HMEM_SYSTEM);
+	if (iface == FI_HMEM_SYSTEM)
+		iface = cmd->msg.data.ipc_info.iface;
+	assert(iface == cmd->msg.data.ipc_info.iface);
 
-	if (cmd->msg.data.ipc_info.iface == FI_HMEM_ZE) {
+	if (iface == FI_HMEM_ZE) {
 		id = cmd->msg.hdr.id;
 		ipc_device = cmd->msg.data.ipc_info.device;
 		fd = ep->sock_info->peers[id].device_fds[ipc_device];
