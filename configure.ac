@@ -550,10 +550,7 @@ AS_IF([test x"$with_ze" != x"no"],
 			[$with_ze],
 			[],
 			[have_ze=1],
-			[], [])
-       CPPFLAGS="$CPPFLAGS $ze_CPPFLAGS"
-       LDFLAGS="$LDFLAGS $ze_LDFLAGS"
-       LIBS="$LIBS $ze_LIBS"],
+			[], [])],
       [])
 
 have_drm=0
@@ -564,6 +561,12 @@ AS_IF([test "$have_ze" = "1"],
 AS_IF([test x"$with_ze" != x"no" && test -n "$with_ze" && test "$have_ze" = "0" ],
 	[AC_MSG_ERROR([ZE support requested but ZE runtime not available.])],
 	[])
+
+AS_IF([test "$have_ze" = "1"],
+      [LIBS="$LIBS $ze_LIBS"
+       AS_IF([test x"$with_ze" != x"yes"],
+	     [CPPFLAGS="$CPPFLAGS $ze_CPPFLAGS"
+	      LDFLAGS="$LDFLAGS $ze_LDFLAGS"],[])],[])
 
 AC_DEFINE_UNQUOTED([HAVE_LIBZE], [$have_ze], [ZE support])
 AC_DEFINE_UNQUOTED([HAVE_DRM], [$have_drm], [i915 DRM header])
