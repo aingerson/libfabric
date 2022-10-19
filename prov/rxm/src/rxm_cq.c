@@ -1984,29 +1984,6 @@ void rxm_ep_progress_coll(struct util_ep *util_ep)
 	ofi_coll_ep_progress(&util_ep->ep_fid);
 }
 
-static int rxm_cq_close(struct fid *fid)
-{
-	struct util_cq *util_cq;
-	int ret, retv = 0;
-
-	util_cq = container_of(fid, struct util_cq, cq_fid.fid);
-
-	ret = ofi_cq_cleanup(util_cq);
-	if (ret)
-		retv = ret;
-
-	free(util_cq);
-	return retv;
-}
-
-static struct fi_ops rxm_cq_fi_ops = {
-	.size = sizeof(struct fi_ops),
-	.close = rxm_cq_close,
-	.bind = fi_no_bind,
-	.control = ofi_cq_control,
-	.ops_open = fi_no_ops_open,
-};
-
 static struct fi_ops_cq rxm_cq_ops = {
 	.size = sizeof(struct fi_ops_cq),
 	.read = ofi_cq_read,
@@ -2034,8 +2011,7 @@ int rxm_cq_open(struct fid_domain *domain, struct fi_cq_attr *attr,
 		goto err1;
 
 	*cq_fid = &util_cq->cq_fid;
-	/* Override util_cq_fi_ops */
-	(*cq_fid)->fid.ops = &rxm_cq_fi_ops;
+	/* Override util_cq_ops */
 	(*cq_fid)->ops = &rxm_cq_ops;
 	return 0;
 err1:
