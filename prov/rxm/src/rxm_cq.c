@@ -132,7 +132,7 @@ static void rxm_finish_buf_recv(struct rxm_rx_buf *rx_buf)
 }
 
 static void rxm_cq_write_error_trunc(struct rxm_rx_buf *rx_buf, size_t done_len)
-{
+{	struct fi_cq_err_entry err_entry;
 	int ret;
 
 	if (rx_buf->ep->util_ep.flags & OFI_CNTR_ENABLED)
@@ -141,14 +141,17 @@ static void rxm_cq_write_error_trunc(struct rxm_rx_buf *rx_buf, size_t done_len)
 	FI_WARN(&rxm_prov, FI_LOG_CQ, "Message truncated: "
 		"recv buf length: %zu message length: %" PRIu64 "\n",
 		done_len, rx_buf->pkt.hdr.size);
-	ret = ofi_cq_write_error_trunc(rx_buf->ep->util_ep.rx_cq,
-				       rx_buf->recv_entry->context,
-				       rx_buf->recv_entry->comp_flags |
-				       rx_buf->pkt.hdr.flags,
-				       rx_buf->pkt.hdr.size,
-				       rx_buf->recv_entry->rxm_iov.iov[0].iov_base,
-				       rx_buf->pkt.hdr.data, rx_buf->pkt.hdr.tag,
-				       rx_buf->pkt.hdr.size - done_len);
+
+	err_entry.op_context = rx_buf->recv_entry->context;
+	err_entry.flags	= rx_buf->recv_entry->comp_flags | rx_buf->pkt.hdr.flags;
+	err_entry.len = rx_buf->pkt.hdr.size;
+	err_entry.buf =  rx_buf->recv_entry->rxm_iov.iov[0].iov_base;
+	err_entry.data = rx_buf->pkt.hdr.data;
+	err_entry.tag = rx_buf->pkt.hdr.tag;
+	err_entry.olen =  rx_buf->pkt.hdr.size - done_len;
+	err_entry.err = FI_ETRUNC;
+	err_entry.prov_errno = -FI_ETRUNC;
+	ret = ofi_peer_cq_write_error(rx_buf->ep->util_ep.rx_cq, &err_entry);
 	if (ret) {
 		FI_WARN(&rxm_prov, FI_LOG_CQ, "Unable to write recv error CQ\n");
 		assert(0);
@@ -186,8 +189,8 @@ rxm_cq_write_tx_comp(struct rxm_ep *rxm_ep, uint64_t comp_flags,
 		     void *app_context,  uint64_t flags)
 {
 	if (flags & FI_COMPLETION) {
-		rxm_cq_write(rxm_ep->util_ep.tx_cq, app_context,
-			     comp_flags, 0, NULL, 0, 0);
+		ofi_peer_cq_write(rxm_ep->util_ep.tx_cq, app_context,
+				  comp_flags, 0, NULL, 0, 0, FI_ADDR_NOTAVAIL);
 	}
 }
 
@@ -982,8 +985,8 @@ err:
 static void rxm_handle_remote_write(struct rxm_ep *rxm_ep,
 				   struct fi_cq_data_entry *comp)
 {
-	rxm_cq_write(rxm_ep->util_ep.rx_cq, NULL, comp->flags, comp->len, NULL,
-		     comp->data, 0);
+	ofi_peer_cq_write(rxm_ep->util_ep.rx_cq, NULL, comp->flags, comp->len,
+			  NULL, comp->data, 0, FI_ADDR_NOTAVAIL);
 	ofi_ep_cntr_inc(&rxm_ep->util_ep, CNTR_REM_WR);
 	if (comp->op_context)
 		rxm_free_rx_buf(comp->op_context);
@@ -1486,8 +1489,8 @@ void rxm_cq_write_error(struct util_cq *cq, struct util_cntr *cntr,
 	if (cntr)
 		rxm_cntr_incerr(cntr);
 
-	if (ofi_cq_write_error(cq, &err_entry)) {
-		FI_WARN(&rxm_prov, FI_LOG_CQ, "Unable to ofi_cq_write_error\n");
+	if (ofi_peer_cq_write_error(cq, &err_entry)) {
+		FI_WARN(&rxm_prov, FI_LOG_CQ, "Unable to ofi_peer_cq_write_error\n");
 		assert(0);
 	}
 }
@@ -1500,18 +1503,18 @@ void rxm_cq_write_error_all(struct rxm_ep *rxm_ep, int err)
 	err_entry.prov_errno = err;
 	err_entry.err = -err;
 	if (rxm_ep->util_ep.tx_cq) {
-		ret = ofi_cq_write_error(rxm_ep->util_ep.tx_cq, &err_entry);
+		ret = ofi_peer_cq_write_error(rxm_ep->util_ep.tx_cq, &err_entry);
 		if (ret) {
 			FI_WARN(&rxm_prov, FI_LOG_CQ,
-				"Unable to ofi_cq_write_error\n");
+				"Unable to ofi_peer_cq_write_error\n");
 			assert(0);
 		}
 	}
 	if (rxm_ep->util_ep.rx_cq) {
-		ret = ofi_cq_write_error(rxm_ep->util_ep.rx_cq, &err_entry);
+		ret = ofi_peer_cq_write_error(rxm_ep->util_ep.rx_cq, &err_entry);
 		if (ret) {
 			FI_WARN(&rxm_prov, FI_LOG_CQ,
-				"Unable to ofi_cq_write_error\n");
+				"Unable to ofi_peer_cq_write_error\n");
 			assert(0);
 		}
 	}
@@ -1645,9 +1648,9 @@ void rxm_handle_comp_error(struct rxm_ep *rxm_ep)
 		rxm_cntr_incerr(cntr);
 
 	assert(cq);
-	ret = ofi_cq_write_error(cq, &err_entry);
+	ret = ofi_peer_cq_write_error(cq, &err_entry);
 	if (ret) {
-		FI_WARN(&rxm_prov, FI_LOG_CQ, "Unable to ofi_cq_write_error\n");
+		FI_WARN(&rxm_prov, FI_LOG_CQ, "Unable to ofi_peer_cq_write_error\n");
 		assert(0);
 	}
 }
@@ -1660,8 +1663,8 @@ ssize_t rxm_thru_comp(struct rxm_ep *ep, struct fi_cq_data_entry *comp)
 	cq = (comp->flags & (FI_RECV | FI_REMOTE_WRITE | FI_REMOTE_READ)) ?
 	     ep->util_ep.rx_cq : ep->util_ep.tx_cq;
 
-	ret = ofi_cq_write(cq, comp->op_context, comp->flags, comp->len,
-			   comp->buf, comp->data, 0);
+	ret = ofi_peer_cq_write(cq, comp->op_context, comp->flags, comp->len,
+			   comp->buf, comp->data, 0, FI_ADDR_NOTAVAIL);
 	if (ret) {
 		FI_WARN(&rxm_prov, FI_LOG_CQ, "Unable to report completion\n");
 		assert(0);
@@ -1687,9 +1690,9 @@ void rxm_thru_comp_error(struct rxm_ep *ep)
 	}
 
 	cq = (err_entry.flags & FI_RECV) ? ep->util_ep.rx_cq : ep->util_ep.tx_cq;
-	ret = ofi_cq_write_error(cq, &err_entry);
+	ret = ofi_peer_cq_write_error(cq, &err_entry);
 	if (ret) {
-		FI_WARN(&rxm_prov, FI_LOG_CQ, "Unable to ofi_cq_write_error\n");
+		FI_WARN(&rxm_prov, FI_LOG_CQ, "Unable to ofi_peer_cq_write_error\n");
 		assert(0);
 	}
 }

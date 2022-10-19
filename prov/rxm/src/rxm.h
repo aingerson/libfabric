@@ -872,44 +872,6 @@ static inline void rxm_cntr_incerr(struct util_cntr *cntr)
 		cntr->cntr_fid.ops->adderr(&cntr->cntr_fid, 1);
 }
 
-static inline void
-rxm_cq_write(struct util_cq *cq, void *context, uint64_t flags, size_t len,
-	     void *buf, uint64_t data, uint64_t tag)
-{
-	int ret;
-
-	FI_DBG(&rxm_prov, FI_LOG_CQ, "Reporting %s completion\n",
-	       fi_tostr((void *) &flags, FI_TYPE_CQ_EVENT_FLAGS));
-
-	ret = ofi_cq_write(cq, context, flags, len, buf, data, tag);
-	if (ret) {
-		FI_WARN(&rxm_prov, FI_LOG_CQ,
-			"Unable to report completion\n");
-		assert(0);
-	}
-	if (cq->wait)
-		cq->wait->signal(cq->wait);
-}
-
-static inline void
-rxm_cq_write_src(struct util_cq *cq, void *context, uint64_t flags, size_t len,
-		 void *buf, uint64_t data, uint64_t tag, fi_addr_t addr)
-{
-	int ret;
-
-	FI_DBG(&rxm_prov, FI_LOG_CQ, "Reporting %s completion\n",
-	       fi_tostr((void *) &flags, FI_TYPE_CQ_EVENT_FLAGS));
-
-	ret = ofi_cq_write_src(cq, context, flags, len, buf, data, tag, addr);
-	if (ret) {
-		FI_WARN(&rxm_prov, FI_LOG_CQ,
-			"Unable to report completion\n");
-		assert(0);
-	}
-	if (cq->wait)
-		cq->wait->signal(cq->wait);
-}
-
 ssize_t rxm_get_conn(struct rxm_ep *rxm_ep, fi_addr_t addr,
 		     struct rxm_conn **rxm_conn);
 
@@ -1000,14 +962,14 @@ rxm_cq_write_recv_comp(struct rxm_rx_buf *rx_buf, void *context, uint64_t flags,
 	}
 
 	if (rx_buf->ep->rxm_info->caps & FI_SOURCE)
-		rxm_cq_write_src(rx_buf->ep->util_ep.rx_cq, context,
-				 flags, len, buf, rx_buf->pkt.hdr.data,
-				 rx_buf->pkt.hdr.tag,
-				 rx_buf->conn->peer->fi_addr);
+		(void) ofi_peer_cq_write(rx_buf->ep->util_ep.rx_cq, context,
+					 flags, len, buf, rx_buf->pkt.hdr.data,
+					 rx_buf->pkt.hdr.tag,
+					 rx_buf->conn->peer->fi_addr);
 	else
-		rxm_cq_write(rx_buf->ep->util_ep.rx_cq, context,
-			     flags, len, buf, rx_buf->pkt.hdr.data,
-			     rx_buf->pkt.hdr.tag);
+		(void) ofi_peer_cq_write(rx_buf->ep->util_ep.rx_cq, context,
+					 flags, len, buf, rx_buf->pkt.hdr.data,
+					 rx_buf->pkt.hdr.tag, FI_ADDR_NOTAVAIL);
 }
 
 struct rxm_mr *rxm_mr_get_map_entry(struct rxm_domain *domain, uint64_t key);
