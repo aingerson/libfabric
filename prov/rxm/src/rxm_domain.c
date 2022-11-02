@@ -346,7 +346,7 @@ static struct fi_ops_domain rxm_domain_ops = {
 	.cntr_open = rxm_cntr_open,
 	.poll_open = fi_poll_create,
 	.stx_ctx = fi_no_stx_context,
-	.srx_ctx = fi_no_srx_context,
+	.srx_ctx = rxm_srx_context,
 	.query_atomic = rxm_ep_query_atomic,
 	.query_collective = rxm_query_collective,
 };
