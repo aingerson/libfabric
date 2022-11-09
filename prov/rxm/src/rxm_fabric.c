@@ -53,6 +53,15 @@ static int rxm_fabric_close(fid_t fid)
 
 	rxm_fabric = container_of(fid, struct rxm_fabric, util_fabric.fabric_fid.fid);
 
+	if (rxm_fabric->shm_fabric) {
+		ret = fi_close(&rxm_fabric->shm_fabric->fid);
+		if (ret) {
+			FI_WARN(&rxm_prov, FI_LOG_FABRIC,
+				"Unable to close shm fabric\n");
+			return ret;
+		}
+	}
+
 	ret = fi_close(&rxm_fabric->msg_fabric->fid);
 	if (ret)
 		return ret;

@@ -1912,6 +1912,9 @@ void rxm_ep_do_progress(struct util_ep *util_ep)
 			rxm_ep_progress_deferred_queue(rxm_ep, rxm_conn);
 		}
 	}
+
+	ret = fi_cq_read(rxm_ep->shm_rx_cq, NULL, 0);
+	assert(!ret || ret == -FI_EAGAIN);
 }
 
 void rxm_ep_progress(struct util_ep *util_ep)

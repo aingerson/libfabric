@@ -169,9 +169,31 @@ static int
 rxm_av_open(struct fid_domain *domain_fid, struct fi_av_attr *attr,
 	    struct fid_av **fid_av, void *context)
 {
-	return rxm_util_av_open(domain_fid, attr, fid_av,
+	struct rxm_domain *domain;
+	struct rxm_av *av;
+	struct fi_av_attr av_attr;
+	int ret;
+
+	domain = container_of(domain_fid, struct rxm_domain,
+			      util_domain.domain_fid);
+
+	ret = rxm_util_av_open(domain_fid, attr, fid_av,
 			context, sizeof(struct rxm_conn),
 			ofi_av_remove_cleanup ? rxm_av_remove_handler : NULL);
+	if (ret)
+		return ret;
+
+	if (domain->shm_domain) {
+		av = container_of(*fid_av, struct rxm_av, util_av.av_fid);
+		memset(&av_attr, 0, sizeof(av_attr));
+		av_attr.count = 256; //env or defined
+		av_attr.type = FI_AV_TABLE;
+		ret = fi_av_open(domain->shm_domain, &av_attr, &av->shm_av,
+				 domain);
+		if (ret)
+			assert(0);
+	}
+	return FI_SUCCESS;
 }
 
 static int
@@ -284,6 +306,14 @@ static int rxm_domain_close(fid_t fid)
 	if (ret)
 		return ret;
 
+	if (rxm_domain->shm_domain) {
+		ret = fi_close(&rxm_domain->shm_domain->fid);
+		if (ret) {
+			FI_WARN(&rxm_prov, FI_LOG_DOMAIN,
+				"Unable to close shm domain\n");
+		}
+	}
+
 	ret = ofi_domain_close(&rxm_domain->util_domain);
 	if (ret)
 		return ret;
@@ -313,6 +343,9 @@ static int rxm_mr_close(fid_t fid)
 	ret = fi_close(&rxm_mr->msg_mr->fid);
 	if (ret)
 		FI_WARN(&rxm_prov, FI_LOG_DOMAIN, "Unable to close MSG MR\n");
+
+	if (rxm_mr->shm_mr) //drop this? check return?
+		fi_close(&rxm_mr->shm_mr->fid);
 
 	ofi_atomic_dec32(&rxm_mr->domain->util_domain.ref);
 	free(rxm_mr);
@@ -407,12 +440,15 @@ static void rxm_mr_init(struct rxm_mr *rxm_mr, struct rxm_domain *domain,
 	rxm_mr->mr_fid.mem_desc = rxm_mr;
 	rxm_mr->mr_fid.key = fi_mr_key(rxm_mr->msg_mr);
 	rxm_mr->domain = domain;
+	rxm_mr->shm_mr = NULL;
+	rxm_mr->shm_desc = NULL;
 	ofi_atomic_inc32(&domain->util_domain.ref);
 }
 
 static int rxm_mr_regattr(struct fid *fid, const struct fi_mr_attr *attr,
 			  uint64_t flags, struct fid_mr **mr)
 {
+	struct rxm_fabric *rxm_fabric;
 	struct rxm_domain *rxm_domain;
 	struct fi_mr_attr msg_attr = *attr;
 	struct rxm_mr *rxm_mr;
@@ -452,6 +488,20 @@ static int rxm_mr_regattr(struct fid *fid, const struct fi_mr_attr *attr,
 	rxm_mr->device = msg_attr.device.reserved;
 	*mr = &rxm_mr->mr_fid;
 
+	if (rxm_domain->shm_domain) { //TODO align shm MR mode with rxm mode
+		rxm_fabric = container_of(rxm_domain->util_domain.fabric,
+					  struct rxm_fabric, util_fabric);
+		if (rxm_fabric->shm_info->domain_attr->mr_mode &
+		    (FI_MR_LOCAL | FI_MR_HMEM)) {
+			ret = fi_mr_regattr(rxm_domain->shm_domain, attr, flags,
+					    &rxm_mr->shm_mr);
+			if (ret) {
+				//FI_WARN, disable?
+			}
+			rxm_mr->shm_desc = fi_mr_desc(rxm_mr->shm_mr);
+		    }
+	}
+
 	if (rxm_domain->util_domain.info_domain_caps & FI_ATOMIC) {
 		ret = rxm_mr_add_map_entry(&rxm_domain->util_domain,
 					   &msg_attr, rxm_mr);
@@ -474,6 +524,7 @@ static int rxm_mr_regv(struct fid *fid, const struct iovec *iov, size_t count,
 		       uint64_t access, uint64_t offset, uint64_t requested_key,
 		       uint64_t flags, struct fid_mr **mr, void *context)
 {
+	struct rxm_fabric *rxm_fabric;
 	struct rxm_domain *rxm_domain;
 	struct rxm_mr *rxm_mr;
 	int ret;
@@ -503,6 +554,20 @@ static int rxm_mr_regv(struct fid *fid, const struct iovec *iov, size_t count,
 	}
 	rxm_mr_init(rxm_mr, rxm_domain, context);
 	*mr = &rxm_mr->mr_fid;
+	if (rxm_domain->shm_domain) { //TODO align shm MR mode with rxm mode
+		rxm_fabric = container_of(rxm_domain->util_domain.fabric,
+					  struct rxm_fabric, util_fabric);
+		if (rxm_fabric->shm_info->domain_attr->mr_mode &
+		    (FI_MR_LOCAL | FI_MR_HMEM)) {
+			ret = fi_mr_regv(rxm_domain->shm_domain, iov, count,
+					 access, offset, requested_key, flags,
+					 &rxm_mr->shm_mr, context);
+			if (ret) {
+				//FI_WARN, disable?
+			}
+			rxm_mr->shm_desc = fi_mr_desc(rxm_mr->shm_mr);
+		    }
+	}
 
 	if (rxm_domain->util_domain.info_domain_caps & FI_ATOMIC) {
 		ret = rxm_mr_add_map_entry(&rxm_domain->util_domain,
@@ -717,6 +782,48 @@ static void rxm_config_dyn_rbuf(struct rxm_domain *domain, struct fi_info *info,
 	}
 }
 
+static void rxm_init_shm_fabric(struct rxm_fabric *rxm_fabric,
+				struct fi_info *info)
+{
+	struct fi_info *shm_hints;
+	int ret;
+
+	shm_hints = fi_allocinfo();
+	*shm_hints->domain_attr = *info->domain_attr;
+	shm_hints->domain_attr->caps = FI_LOCAL_COMM;
+	shm_hints->caps = info->caps;
+	*shm_hints->tx_attr = *info->tx_attr;
+	*shm_hints->rx_attr = *info->rx_attr;
+	*shm_hints->ep_attr = *info->ep_attr;
+	shm_hints->ep_attr->protocol = FI_PROTO_UNSPEC;
+	shm_hints->ep_attr->protocol_version = 0;
+	shm_hints->tx_attr->size = 1024;
+	shm_hints->rx_attr->size = 1024;
+	//TODO track this?
+
+	shm_hints->fabric_attr->name = strdup("shm");
+	shm_hints->fabric_attr->prov_name = strdup("shm");
+
+	ret = fi_getinfo(fi_version(), NULL, NULL, OFI_GETINFO_HIDDEN,
+			 shm_hints, &rxm_fabric->shm_info);
+	fi_freeinfo(shm_hints);
+	if (ret)
+		goto err;
+
+	assert(!strcmp(rxm_fabric->shm_info->fabric_attr->name, "shm"));
+	ret = fi_fabric(rxm_fabric->shm_info->fabric_attr, &rxm_fabric->shm_fabric,
+			NULL);
+	if (ret)
+		goto err;
+
+	return;
+err:
+	FI_WARN(&rxm_prov, FI_LOG_CORE,
+		"shm getinfo failed (%s). Disabling shm offload\n",
+		fi_strerror(-ret));
+	rxm_enable_shm = 0;
+}
+
 int rxm_domain_open(struct fid_fabric *fabric, struct fi_info *info,
 		struct fid_domain **domain, void *context)
 {
@@ -781,6 +888,25 @@ int rxm_domain_open(struct fid_fabric *fabric, struct fi_info *info,
 	rxm_config_dyn_rbuf(rxm_domain, info, msg_info);
 
 	fi_freeinfo(msg_info);
+
+	if (rxm_enable_shm && !rxm_fabric->shm_fabric)
+		rxm_init_shm_fabric(rxm_fabric, info);
+
+	if (rxm_fabric->shm_fabric) {
+		ret = fi_domain(rxm_fabric->shm_fabric, rxm_fabric->shm_info,
+				&rxm_domain->shm_domain, context);
+		if (ret) {
+			//if ret WARN and fallback
+			assert(0);
+		}
+		rxm_domain->util_domain.src_addr = calloc(1,
+				info->src_addrlen);
+		memcpy(rxm_domain->util_domain.src_addr, info->src_addr,
+		       info->src_addrlen);
+
+
+	}
+
 	return 0;
 err4:
 	ofi_mutex_destroy(&rxm_domain->amo_bufpool_lock);
