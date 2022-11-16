@@ -149,12 +149,7 @@ struct smr_sar_entry {
 	uint64_t		device;
 };
 
-struct smr_cq {
-	struct util_cq util_cq;
-	struct fid_peer_cq *peer_cq;
-};
-
-typedef int (*smr_rx_comp_func)(struct smr_cq *cq, void *context,
+typedef int (*smr_rx_comp_func)(struct util_cq *cq, void *context,
 		uint64_t flags, size_t len, void *buf,
 		fi_addr_t fi_addr, uint64_t tag, uint64_t data);
 
@@ -278,7 +273,7 @@ struct smr_srx_ctx {
 	uint64_t		rx_op_flags;
 	uint64_t		rx_msg_flags;
 
-	struct smr_cq		*cq;
+	struct util_cq		*cq;
 	struct smr_queue	unexp_msg_queue;
 	struct smr_queue	unexp_tagged_queue;
 	struct smr_recv_fs	*recv_fs;
@@ -338,10 +333,10 @@ int smr_endpoint(struct fid_domain *domain, struct fi_info *info,
 		  struct fid_ep **ep, void *context);
 void smr_ep_exchange_fds(struct smr_ep *ep, int64_t id);
 
-int smr_cq_open(struct fid_domain *domain, struct fi_cq_attr *attr,
-		struct fid_cq **cq_fid, void *context);
 int smr_cntr_open(struct fid_domain *domain, struct fi_cntr_attr *attr,
 		  struct fid_cntr **cntr_fid, void *context);
+int smr_cq_open(struct fid_domain *domain, struct fi_cq_attr *attr,
+		struct fid_cq **cq_fid, void *context);
 
 int64_t smr_verify_peer(struct smr_ep *ep, fi_addr_t fi_addr);
 
@@ -376,9 +371,9 @@ int smr_complete_tx(struct smr_ep *ep, void *context, uint32_t op,
 int smr_complete_rx(struct smr_ep *ep, void *context, uint32_t op,
 		    uint64_t flags, size_t len, void *buf, int64_t id,
 		    uint64_t tag, uint64_t data);
-int smr_rx_comp(struct smr_cq *cq, void *context, uint64_t flags, size_t len,
+int smr_rx_comp(struct util_cq *cq, void *context, uint64_t flags, size_t len,
 		void *buf, fi_addr_t fi_addr, uint64_t tag, uint64_t data);
-int smr_rx_src_comp(struct smr_cq *cq, void *context, uint64_t flags,
+int smr_rx_src_comp(struct util_cq *cq, void *context, uint64_t flags,
 		    size_t len, void *buf, fi_addr_t fi_addr, uint64_t tag,
 		    uint64_t data);
 

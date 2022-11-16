@@ -863,34 +863,26 @@ int smr_srx_bind(struct fid *fid, struct fid *bfid, uint64_t flags)
 		return -FI_EINVAL;
 
 	srx = container_of(fid, struct smr_srx_ctx, peer_srx.ep_fid.fid);
-	srx->cq = container_of(bfid, struct smr_cq, util_cq.cq_fid.fid);
-	ofi_atomic_inc32(&srx->cq->util_cq.ref);
+	srx->cq = container_of(bfid, struct util_cq, cq_fid.fid);
+	ofi_atomic_inc32(&srx->cq->ref);
 	return FI_SUCCESS;
 }
 
 static void smr_close_recv_queue(struct smr_srx_ctx *srx,
 				 struct smr_queue *recv_queue)
 {
-	struct fi_cq_err_entry err_entry;
 	struct smr_rx_entry *rx_entry;
 	int ret;
 
 	while (!dlist_empty(&recv_queue->list)) {
 		dlist_pop_front(&recv_queue->list, struct smr_rx_entry,
 				rx_entry, peer_entry);
-
-		memset(&err_entry, 0, sizeof err_entry);
-		err_entry.op_context = rx_entry->peer_entry.context;
-		err_entry.flags = rx_entry->peer_entry.flags;
-		err_entry.tag = rx_entry->peer_entry.tag;
-		err_entry.err = FI_ECANCELED;
-		err_entry.prov_errno = -FI_ECANCELED;
-		ret = srx->cq->peer_cq->owner_ops->writeerr(srx->cq->peer_cq, &err_entry);
+		ret = smr_write_err_comp(srx->cq, rx_entry->peer_entry.context,
+					 rx_entry->peer_entry.flags,
+					 rx_entry->peer_entry.tag, FI_ECANCELED);
 		if (ret)
 			FI_WARN(&smr_prov, FI_LOG_EP_CTRL,
 				"Error writing recv entry error to rx cq\n");
-
-		ofi_freestack_push(srx->recv_fs, rx_entry);
 	}
 }
 
@@ -921,7 +913,7 @@ static int smr_srx_close(struct fid *fid)
 	smr_close_unexp_queue(srx, &srx->unexp_msg_queue);
 	smr_close_unexp_queue(srx, &srx->unexp_tagged_queue);
 
-	ofi_atomic_dec32(&srx->cq->util_cq.ref);
+	ofi_atomic_dec32(&srx->cq->ref);
 	smr_recv_fs_free(srx->recv_fs);
 	ofi_spin_destroy(&srx->lock);
 	free(srx);

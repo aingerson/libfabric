@@ -181,7 +181,7 @@ int ofi_check_cq_attr(const struct fi_provider *prov,
 		return -FI_EINVAL;
 	}
 
-	if (attr->flags & ~(FI_AFFINITY)) {
+	if (attr->flags & ~(FI_AFFINITY | FI_PEER)) {
 		FI_WARN(prov, FI_LOG_CQ, "invalid flags\n");
 		return -FI_EINVAL;
 	}
@@ -463,6 +463,9 @@ static int util_cq_close(struct fid *fid)
 	if (ret)
 		return ret;
 
+	if (!(cq->flags & FI_PEER))
+		fi_close(&cq->peer_cq.cq->fid);
+
 	free(cq);
 	return 0;
 }
@@ -574,6 +577,126 @@ void ofi_cq_progress(struct util_cq *cq)
 	ofi_mutex_unlock(&cq->ep_list_lock);
 }
 
+ssize_t ofi_peer_cq_write(struct util_cq *cq, void *context,
+			  uint64_t flags, size_t len, void *buf, uint64_t data,
+			  uint64_t tag, fi_addr_t src)
+{
+	return cq->peer_cq.cq->owner_ops->write(cq->peer_cq.cq, context, flags,
+						len, buf, data, tag, src);
+}
+
+int ofi_peer_cq_writeerr(struct util_cq *cq,
+			 const struct fi_cq_err_entry *err_entry)
+{
+	return cq->peer_cq.cq->owner_ops->writeerr(cq->peer_cq.cq, err_entry);
+}
+
+static ssize_t util_peer_cq_write(struct fid_peer_cq *cq, void *context,
+		uint64_t flags, size_t len, void *buf, uint64_t data,
+		uint64_t tag, fi_addr_t src)
+{
+	struct util_cq *util_cq;
+	int ret;
+
+	util_cq = cq->fid.context;
+
+	ret = ofi_cq_write(util_cq, context, flags, len, buf, data, tag);
+
+	if (util_cq->wait)
+		util_cq->wait->signal(util_cq->wait);
+
+	return ret;
+}
+
+static ssize_t util_peer_cq_write_src(struct fid_peer_cq *cq, void *context,
+		uint64_t flags, size_t len, void *buf, uint64_t data,
+		uint64_t tag, fi_addr_t src)
+{
+	struct util_cq *util_cq;
+	int ret;
+
+	util_cq = cq->fid.context;
+
+	if (src == FI_ADDR_NOTAVAIL)
+		ret = ofi_cq_write(util_cq, context, flags, len, buf, data,
+				   tag);
+	else
+		ret = ofi_cq_write_src(util_cq, context, flags, len, buf, data,
+				       tag, src);
+
+	if (util_cq->wait)
+		util_cq->wait->signal(util_cq->wait);
+
+	return ret;
+}
+
+static ssize_t util_peer_cq_writeerr(struct fid_peer_cq *cq,
+				     const struct fi_cq_err_entry *err_entry)
+{
+	return ofi_cq_write_error((struct util_cq *) (cq->fid.context),
+				  err_entry);
+}
+
+static struct fi_ops_cq_owner util_peer_cq_owner_ops = {
+	.size = sizeof(struct fi_ops_cq_owner),
+	.write = &util_peer_cq_write,
+	.writeerr = &util_peer_cq_writeerr,
+};
+
+static struct fi_ops_cq_owner util_peer_cq_src_owner_ops = {
+	.size = sizeof(struct fi_ops_cq_owner),
+	.write = &util_peer_cq_write_src,
+	.writeerr = &util_peer_cq_writeerr,
+};
+
+static ssize_t util_cq_read(struct fid_cq *cq_fid, void *buf, size_t count)
+{
+	return ofi_cq_readfrom(cq_fid, buf, count, NULL);
+}
+
+static struct fi_ops_cq util_peer_cq_ops = {
+	.size = sizeof(struct fi_ops_cq),
+	.read = util_cq_read,
+	.readfrom = fi_no_cq_readfrom,
+	.readerr = fi_no_cq_readerr,
+	.sread = fi_no_cq_sread,
+	.sreadfrom = fi_no_cq_sreadfrom,
+	.signal = fi_no_cq_signal,
+	.strerror = fi_no_cq_strerror,
+};
+
+static int util_peer_cq_close(struct fid *fid)
+{
+	free(container_of(fid, struct fid_peer_cq, fid));
+	return 0;
+}
+
+static struct fi_ops util_peer_cq_fi_ops = {
+	.size = sizeof(struct fi_ops),
+	.close = util_peer_cq_close,
+	.bind = fi_no_bind,
+	.control = fi_no_control,
+	.ops_open = fi_no_ops_open,
+};
+
+static int util_init_peer_cq(struct util_cq *cq)
+{
+	cq->peer_cq.cq = calloc(1, sizeof(*cq->peer_cq.cq));
+	if (!cq->peer_cq.cq)
+		return -FI_ENOMEM;
+
+	cq->peer_cq.size = sizeof(cq->peer_cq);
+	cq->peer_cq.cq->fid.fclass = FI_CLASS_PEER_CQ;
+	cq->peer_cq.cq->fid.context = cq;
+	cq->peer_cq.cq->fid.ops = &util_peer_cq_fi_ops;
+	if (cq->domain->info_domain_caps & FI_SOURCE)
+		cq->peer_cq.cq->owner_ops = &util_peer_cq_src_owner_ops;
+	else
+		cq->peer_cq.cq->owner_ops = &util_peer_cq_owner_ops;
+
+	return 0;
+}
+
 int ofi_cq_init(const struct fi_provider *prov, struct fid_domain *domain,
 		 struct fi_cq_attr *attr, struct util_cq *cq,
 		 ofi_cq_progress_func progress, void *context)
@@ -633,6 +756,14 @@ int ofi_cq_init(const struct fi_provider *prov, struct fid_domain *domain,
 			ret = -FI_ENOMEM;
 			goto cleanup;
 		}
+	}
+	if (attr->flags & FI_PEER) {
+		cq->peer_cq.cq = ((struct fi_peer_cq_context *) context)->cq;
+		cq->cq_fid.ops = &util_peer_cq_ops;
+	} else {
+		ret = util_init_peer_cq(cq);
+		if (ret)
+			goto cleanup;
 	}
 	return 0;
 

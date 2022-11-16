@@ -506,6 +506,7 @@ typedef void (*ofi_cq_progress_func)(struct util_cq *cq);
 
 struct util_cq {
 	struct fid_cq		cq_fid;
+	struct fi_peer_cq_context peer_cq;
 	struct util_domain	*domain;
 	struct util_wait	*wait;
 	ofi_atomic32_t		ref;
@@ -610,6 +611,14 @@ ofi_cq_write_src(struct util_cq *cq, void *context, uint64_t flags, size_t len,
 	ofi_genlock_unlock(&cq->cq_lock);
 	return ret;
 }
+
+ssize_t ofi_peer_cq_write(struct util_cq *cq, void *context,
+			  uint64_t flags, size_t len, void *buf, uint64_t data,
+			  uint64_t tag, fi_addr_t src);
+
+int ofi_peer_cq_writeerr(struct util_cq *cq,
+			 const struct fi_cq_err_entry *err_entry);
+
 
 int ofi_cq_insert_error(struct util_cq *cq,
 			const struct fi_cq_err_entry *err_entry);
