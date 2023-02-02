@@ -78,6 +78,7 @@ common_srcs =				\
 	prov/util/src/util_mr_map.c	\
 	prov/util/src/util_ns.c		\
 	prov/util/src/util_shm.c	\
+	prov/util/src/util_shm2.c	\
 	prov/util/src/util_mem_monitor.c\
 	prov/util/src/util_mem_hooks.c	\
 	prov/util/src/util_mr_cache.c	\
@@ -180,6 +181,7 @@ src_libfabric_la_SOURCES =			\
 	include/ofi_recvwin.h			\
 	include/ofi_rbuf.h			\
 	include/ofi_shm.h			\
+	include/ofi_shm2.h			\
 	include/ofi_signal.h			\
 	include/ofi_epoll.h			\
 	include/ofi_tree.h			\
@@ -454,6 +456,7 @@ include prov/rxd/Makefile.include
 include prov/bgq/Makefile.include
 include prov/opx/Makefile.include
 include prov/shm/Makefile.include
+include prov/shm2/Makefile.include
 include prov/tcp/Makefile.include
 include prov/net/Makefile.include
 include prov/rstream/Makefile.include

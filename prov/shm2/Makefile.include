@@ -1,0 +1,37 @@
+if HAVE_SHM2
+_shm2_files = \
+	prov/shm2/src/smr2_attr.c	\
+	prov/shm2/src/smr2_cq.c		\
+	prov/shm2/src/smr2_domain.c	\
+	prov/shm2/src/smr2_progress.c	\
+	prov/shm2/src/smr2_comp.c	\
+	prov/shm2/src/smr2_cntr.c	\
+	prov/shm2/src/smr2_msg.c	\
+	prov/shm2/src/smr2_rma.c	\
+	prov/shm2/src/smr2_atomic.c	\
+	prov/shm2/src/smr2_ep.c		\
+	prov/shm2/src/smr2_fabric.c	\
+	prov/shm2/src/smr2_init.c	\
+	prov/shm2/src/smr2_av.c		\
+	prov/shm2/src/smr2_signal.h	\
+	prov/shm2/src/smr2.h		\
+	prov/shm2/src/smr2_dsa.h	\
+	prov/shm2/src/smr2_dsa.c
+
+
+if HAVE_SHM2_DL
+pkglib_LTLIBRARIES += libshm2-fi.la
+libshm2_fi_la_SOURCES = $(_shm2_files) $(common_srcs)
+libshm2_fi_la_LIBADD = $(linkback) $(shm2_LIBS)
+libshm2_fi_la_LDFLAGS = -module -avoid-version -shared -export-dynamic
+libshm2_fi_la_DEPENDENCIES = $(linkback)
+else !HAVE_SHM2_DL
+src_libfabric_la_SOURCES += $(_shm2_files)
+src_libfabric_la_LIBADD += $(shm2_LIBS)
+endif !HAVE_SHM2_DL
+
+prov_install_man_pages += man/man7/fi_shm.7
+
+endif HAVE_SHM2
+
+prov_dist_man_pages += man/man7/fi_shm.7

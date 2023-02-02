@@ -237,6 +237,17 @@ SHM_INI ;
 #  define SHM_INIT NULL
 #endif
 
+#if (HAVE_SHM2) && (HAVE_SHM2_DL)
+#  define SHM_INI FI_EXT_INI
+#  define SHM_INIT NULL
+#elif (HAVE_SHM2)
+#  define SHM2_INI INI_SIG(fi_shm2_ini)
+#  define SHM2_INIT fi_shm2_ini()
+SHM2_INI ;
+#else
+#  define SHM2_INIT NULL
+#endif
+
 #if (HAVE_MRAIL) && (HAVE_MRAIL_DL)
 #  define MRAIL_INI FI_EXT_INI
 #  define MRAIL_INIT NULL
