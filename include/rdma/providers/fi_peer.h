@@ -164,6 +164,8 @@ struct fi_ops_srx_owner {
 			size_t size, uint64_t tag, struct fi_peer_rx_entry **entry);
 	int	(*queue_msg)(struct fi_peer_rx_entry *entry);
 	int	(*queue_tag)(struct fi_peer_rx_entry *entry);
+	int	(*queue_msg_progress)(struct fi_peer_rx_entry *entry);
+	int	(*queue_tag_progress)(struct fi_peer_rx_entry *entry);
 
 	void	(*free_entry)(struct fi_peer_rx_entry *entry);
 };
@@ -174,6 +176,8 @@ struct fi_ops_srx_peer {
 	int	(*start_tag)(struct fi_peer_rx_entry *entry);
 	int	(*discard_msg)(struct fi_peer_rx_entry *entry);
 	int	(*discard_tag)(struct fi_peer_rx_entry *entry);
+	int	(*progress_msg)(struct fi_peer_rx_entry *entry);
+	int	(*progress_tag)(struct fi_peer_rx_entry *entry);
 };
 
 struct fid_peer_srx {
