@@ -173,7 +173,11 @@ static int sm2_progress_recv_msg(struct sm2_ep *ep,
 			if (ret)
 				return ret;
 
-			ret = peer_srx->owner_ops->queue_tag(rx_entry);
+			if (rx_entry->addr == FI_ADDR_UNSPEC)
+				ret = peer_srx->owner_ops->queue_tag_progress(
+					rx_entry);
+			else
+				ret = peer_srx->owner_ops->queue_tag(rx_entry);
 			goto out;
 		}
 	} else {
@@ -186,7 +190,11 @@ static int sm2_progress_recv_msg(struct sm2_ep *ep,
 			if (ret)
 				return ret;
 
-			ret = peer_srx->owner_ops->queue_msg(rx_entry);
+			if (rx_entry->addr == FI_ADDR_UNSPEC)
+				ret = peer_srx->owner_ops->queue_msg_progress(
+					rx_entry);
+			else
+				ret = peer_srx->owner_ops->queue_msg(rx_entry);
 			goto out;
 		}
 	}
