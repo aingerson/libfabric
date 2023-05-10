@@ -924,6 +924,7 @@ static void smr_handle_return(struct smr_ep *ep, struct smr_cmd *cmd)
 static void smr_progress_cmd(struct smr_ep *ep)
 {
 	struct smr_cmd *cmd;
+	int i;
 
 	/* ep->util_ep.lock is used to serialize the message/tag matching.
 	 * We keep the lock until the matching is complete. This will
@@ -937,7 +938,7 @@ static void smr_progress_cmd(struct smr_ep *ep)
 	 * Other processes are free to post on the queue without the need
 	 * for locking the queue.
 	 */
-	while (1) {
+	for (i = 0; i < SMR_MAX_MSGS; i++) {
 		cmd = smr_read_cmd(ep->region);
 		if (!cmd)
 			break;

@@ -110,6 +110,7 @@ int smr_av_open(struct fid_domain *domain, struct fi_av_attr *attr,
 int smr_query_atomic(struct fid_domain *domain, enum fi_datatype datatype,
 		enum fi_op op, struct fi_atomic_attr *attr, uint64_t flags);
 
+#define SMR_MAX_MSGS		8
 #define SMR_IOV_LIMIT		4
 
 // TODO merge/simplify?
