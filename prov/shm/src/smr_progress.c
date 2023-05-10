@@ -1066,7 +1066,7 @@ out:
 static void smr_progress_cmd(struct smr_ep *ep)
 {
 	struct smr_cmd_entry *ce;
-	int ret = 0;
+	int ret = 0, i;
 	int64_t pos;
 
 	/* ep->util_ep.lock is used to serialize the message/tag matching.
@@ -1082,7 +1082,7 @@ static void smr_progress_cmd(struct smr_ep *ep)
 	 * for locking the queue.
 	 */
 	ofi_genlock_lock(&ep->util_ep.lock);
-	while (1) {
+	for (i = 0; i < SMR_MAX_MSGS; i++) {
 		ret = smr_cmd_queue_head(smr_cmd_queue(ep->region), &ce, &pos);
 		if (ret == -FI_ENOENT)
 			break;
