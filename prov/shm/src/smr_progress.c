@@ -878,10 +878,16 @@ static int smr_progress_cmd_msg(struct smr_ep *ep, struct smr_cmd *cmd)
 		ofi_ep_lock_release(&ep->util_ep);
 		if (ret == -FI_ENOENT) {
 			ret = smr_alloc_cmd_ctx(ep, rx_entry, cmd);
-			if (ret)
+			if (ret) {
+				peer_srx->owner_ops->free_entry(rx_entry);
 				return ret;
+			}
 
 			ret = peer_srx->owner_ops->queue_tag(rx_entry);
+			if (ret) {
+				peer_srx->owner_ops->free_entry(rx_entry);
+				return ret;
+			}
 			goto out;
 		}
 	} else {
@@ -890,11 +896,16 @@ static int smr_progress_cmd_msg(struct smr_ep *ep, struct smr_cmd *cmd)
 		ofi_ep_lock_release(&ep->util_ep);
 		if (ret == -FI_ENOENT) {
 			ret = smr_alloc_cmd_ctx(ep, rx_entry, cmd);
-			if (ret)
+			if (ret) {
+				peer_srx->owner_ops->free_entry(rx_entry);
 				return ret;
+			}
 
 			ret = peer_srx->owner_ops->queue_msg(rx_entry);
-			goto out;
+			if (ret) {
+				peer_srx->owner_ops->free_entry(rx_entry);
+				return ret;
+			}
 		}
 	}
 	if (ret) {
