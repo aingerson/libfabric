@@ -415,6 +415,20 @@ struct fi_peer_srx_context {
 The ownership of structure field values and callback functions is similar
 to those defined for peer CQs, relative to owner versus peer ops.
 
+The owner is responsible for acquiring any necessary locks before anything that
+could result in peer callbacks.
+The following functions are progress level functions that need to be under the
+same lock: get_msg(), get_tag(), queue_msg(), queue_tag(), free_entry(),
+start_msg(), start_tag(), discard_msg(), discard_tag(). These functions called
+during functions that drive message progress, like fi_cq_read() or
+posting receives. When an owner calls into a peer's fi_cq_read() to drive peer
+progress, it is the owner's responsibility to acquire the appropriate lock, if
+needed.
+The following functions are domain level functions that need to be under the
+same lock: foreach_unspec_addr(). This function is used outside of message
+progress flow (i.e. during fi_av_insert()).
+
+
 ## fi_peer_rx_entry
 
 fi_peer_rx_entry defines a common receive entry for use between the owner and
