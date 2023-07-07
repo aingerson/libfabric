@@ -89,13 +89,11 @@ static ssize_t smr_rma_fast(struct smr_region *peer_smr, const struct iovec *iov
 			    (op == ofi_op_write) ? ofi_op_write_async :
 			    ofi_op_read_async, op_flags);
 	smr_cmd_queue_commit(ce, pos);
-	smr_signal(peer_smr);
 	return 0;
 
 discard_cmd:
 	smr_cmd_queue_discard(ce, pos);
 signal:
-	smr_signal(peer_smr);
 	return ret;
 }
 
@@ -213,7 +211,6 @@ static ssize_t smr_generic_rma(struct smr_ep *ep, const struct iovec *iov,
 	}
 
 signal:
-	smr_signal(peer_smr);
 	ofi_spin_unlock(&ep->tx_lock);
 	return ret;
 }
@@ -372,11 +369,8 @@ static ssize_t smr_generic_rma_inject(struct fid_ep *ep_fid, const void *buf,
 	}
 
 	ret = smr_cmd_queue_next(smr_cmd_queue(peer_smr), &ce, &pos);
-	if (ret == -FI_ENOENT) {
-		/* kick the peer to process any outstanding commands */
-		smr_signal(peer_smr);
+	if (ret == -FI_ENOENT)
 		return -FI_EAGAIN;
-	}
 
 	proto = len <= SMR_MSG_DATA_LEN ? smr_src_inline : smr_src_inject;
 	ret = smr_proto_ops[proto](ep, peer_smr, id, peer_id, ofi_op_write, 0,
@@ -388,7 +382,6 @@ static ssize_t smr_generic_rma_inject(struct fid_ep *ep_fid, const void *buf,
 	smr_add_rma_cmd(peer_smr, &rma_iov, 1, ce);
 	smr_cmd_queue_commit(ce, pos);
 signal:
-	smr_signal(peer_smr);
 	ofi_ep_tx_cntr_inc_func(&ep->util_ep, ofi_op_write);
 	return ret;
 }

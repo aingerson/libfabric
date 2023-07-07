@@ -106,10 +106,8 @@ static ssize_t smr_generic_sendmsg(struct smr_ep *ep, const struct iovec *iov,
 		return -FI_EAGAIN;
 
 	ret = smr_cmd_queue_next(smr_cmd_queue(peer_smr), &ce, &pos);
-	if (ret == -FI_ENOENT) {
-		smr_signal(peer_smr);
+	if (ret == -FI_ENOENT)
 		return -FI_EAGAIN;
-	}
 
 	ofi_spin_lock(&ep->tx_lock);
 
@@ -155,7 +153,6 @@ static ssize_t smr_generic_sendmsg(struct smr_ep *ep, const struct iovec *iov,
 	}
 
 signal:
-	smr_signal(peer_smr);
 	ofi_spin_unlock(&ep->tx_lock);
 	return ret;
 }
@@ -245,7 +242,6 @@ static ssize_t smr_generic_inject(struct fid_ep *ep_fid, const void *buf,
 	ofi_ep_tx_cntr_inc_func(&ep->util_ep, op);
 
 signal:
-	smr_signal(peer_smr);
 	return ret;
 }
 

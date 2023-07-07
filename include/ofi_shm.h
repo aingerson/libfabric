@@ -229,7 +229,6 @@ struct smr_region {
 				 if both ep->tx_lock and this lock need to
 				 held, then ep->tx_lock needs to be held
 				 first */
-	ofi_atomic32_t	signal;
 
 	struct smr_map	*map;
 
@@ -359,11 +358,6 @@ struct smr_region *smr_map_get(struct smr_map *map, int64_t id);
 int	smr_create(const struct fi_provider *prov, struct smr_map *map,
 		   const struct smr_attr *attr, struct smr_region *volatile *smr);
 void	smr_free(struct smr_region *smr);
-
-static inline void smr_signal(struct smr_region *smr)
-{
-	ofi_atomic_set32(&smr->signal, 1);
-}
 
 #ifdef __cplusplus
 }
