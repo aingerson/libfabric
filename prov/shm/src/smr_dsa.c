@@ -475,8 +475,6 @@ static void smr_dsa_copy_sar(struct smr_freestack *sar_pool,
 	dsa_cmd_context->bytes_in_progress = dsa_bytes_pending;
 	dsa_context->copy_type_stats[dsa_cmd_context->dir]++;
 	dsa_cmd_context->op = cmd->msg.hdr.op;
-
-	smr_signal(region);
 }
 
 static void dsa_handle_page_fault(struct dsa_completion_record *comp)
@@ -730,8 +728,6 @@ void smr_dsa_progress(struct smr_ep *ep)
 			dsa_process_complete_work(ep->region, dsa_cmd_context,
 					      dsa_context);
 	}
-	// Always signal the self to complete dsa, tx or rx.
-	smr_signal(ep->region);
 	ofi_genlock_unlock(&ep->util_ep.lock);
 }
 

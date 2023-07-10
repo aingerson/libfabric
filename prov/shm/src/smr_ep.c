@@ -194,7 +194,6 @@ static void smr_send_name(struct smr_ep *ep, int64_t id)
 	smr_peer_data(ep->region)[id].name_sent = 1;
 
 	smr_conn_queue_commit(conn_req, pos);
-	smr_signal(peer_smr);
 }
 
 int64_t smr_verify_peer(struct smr_ep *ep, fi_addr_t fi_addr)

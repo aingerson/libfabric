@@ -1035,16 +1035,13 @@ void smr_ep_progress(struct util_ep *util_ep)
 
 	ep = container_of(util_ep, struct smr_ep, util_ep);
 
-	if (ofi_atomic_cas_bool32(&ep->region->signal, 1, 0)) {
-		if (smr_env.use_dsa_sar)
-			smr_dsa_progress(ep);
-		ofi_genlock_lock(&ep->util_ep.lock);
-		smr_progress_connreq(ep);
+	if (smr_env.use_dsa_sar)
+		smr_dsa_progress(ep);
+	ofi_genlock_lock(&ep->util_ep.lock);
+	smr_progress_connreq(ep);
 
-		smr_progress_cmd(ep);
-		ofi_genlock_unlock(&ep->util_ep.lock);
-	}
-
+	smr_progress_cmd(ep);
+	ofi_genlock_unlock(&ep->util_ep.lock);
 	/* always drive forward the ipc list since the completion is
 	 * independent of any action by the provider */
 	smr_progress_ipc_list(ep);

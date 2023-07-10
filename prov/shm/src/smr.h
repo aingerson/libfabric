@@ -380,7 +380,6 @@ static inline ssize_t smr_commit_cmd(struct smr_region *my_smr,
 		smr_freestack_push(smr_cmd_pool(my_smr), cmd);
 		return -FI_EAGAIN;
 	}
-	smr_signal(peer_smr);
 	return FI_SUCCESS;
 }
 
@@ -399,7 +398,6 @@ static inline ssize_t smr_return_cmd(struct smr_region *my_smr,
 	if (smr_fifo_commit(queue, peer_ptr)) {
 		assert(0);
 	}
-	smr_signal(peer_smr);
 	return FI_SUCCESS;
 }
 
