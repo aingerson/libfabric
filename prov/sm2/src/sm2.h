@@ -82,6 +82,13 @@
 #define SM2_ATOMIC_INJECT_SIZE	    (SM2_INJECT_SIZE - sizeof(struct sm2_atomic_hdr))
 #define SM2_ATOMIC_COMP_INJECT_SIZE (SM2_ATOMIC_INJECT_SIZE / 2)
 
+/* Protocol flags for all protocols */
+#define FI_SM2_UNEXP (1 << 0)
+
+/* Protocol flags for SM2 CMA protocol */
+#define FI_SM2_CMA_HOST_TO_DEV	   (1 << 1)
+#define FI_SM2_CMA_HOST_TO_DEV_ACK (1 << 2)
+
 extern struct fi_provider sm2_prov;
 extern struct fi_info sm2_info;
 extern struct util_prov sm2_util_prov;
@@ -92,6 +99,8 @@ extern pthread_mutex_t sm2_ep_list_lock;
 enum {
 	sm2_proto_inject,
 	sm2_proto_return,
+	sm2_proto_cma,
+	sm2_proto_ipc,
 	sm2_proto_max,
 };
 
@@ -109,7 +118,7 @@ enum {
  * 	proto - sm2 operation
  * 	proto_flags - Flags used by the sm2 protocol
  * 	sender_gid - id of msg sender
- * 	user_data - the message
+ * 	user_data - the message, for sm2_proto_inject
  */
 struct sm2_xfer_hdr {
 	volatile long int next;
@@ -151,6 +160,15 @@ struct sm2_atomic_data {
 struct sm2_atomic_entry {
 	struct sm2_atomic_hdr atomic_hdr;
 	struct sm2_atomic_data atomic_data;
+};
+
+struct sm2_cma_data {
+	size_t iov_count;
+	struct iovec iov[SM2_IOV_LIMIT];
+
+	/* Used for IPC host to device protocol */
+	struct ipc_info ipc_info;
+	struct fi_peer_rx_entry *rx_entry;
 };
 
 struct sm2_ep_name {
@@ -210,6 +228,7 @@ struct sm2_xfer_ctx {
 
 struct sm2_domain {
 	struct util_domain util_domain;
+	struct ofi_mr_cache *ipc_cache;
 	struct fid_peer_srx *srx;
 };
 
@@ -249,7 +268,7 @@ ssize_t sm2_verify_peer(struct sm2_ep *ep, fi_addr_t fi_addr, sm2_gid_t *gid);
 typedef ssize_t (*sm2_proto_func)(struct sm2_ep *ep,
 				  struct sm2_region *peer_smr,
 				  sm2_gid_t peer_gid, uint32_t op, uint64_t tag,
-				  uint64_t data, uint64_t op_flags,
+				  uint64_t data, uint64_t *op_flags,
 				  struct ofi_mr **mr, const struct iovec *iov,
 				  size_t iov_count, size_t total_len,
 				  void *context);
