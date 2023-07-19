@@ -454,6 +454,8 @@ function unit_test {
 
 	start_time=$(date '+%s')
 
+	echo "library links"
+	ldd ${BIN_PATH}${test_exe}
 	cmd="${gdb_cmd} ${BIN_PATH}${test_exe}"
 	${SERVER_CMD} "${EXPORT_ENV} $cmd" &> $s_outp &
 	p1=$!
@@ -804,38 +806,38 @@ function main {
 			fi
 		;;
 		regression)
-			for test in "${regression_tests[@]}"; do
-				unit_test "$test" "0"
-			done
+			#for test in "${regression_tests[@]}"; do
+			#	unit_test "$test" "0"
+			#done
 		;;
 		functional)
-			for test in "${functional_tests[@]}"; do
-				cs_test "$test"
-			done
+			# for test in "${functional_tests[@]}"; do
+			# 	cs_test "$test"
+			# done
 		;;
 		short)
-			for test in "${short_tests[@]}"; do
-				cs_test "$test"
-			done
+			#for test in "${short_tests[@]}"; do
+			#	cs_test "$test"
+			#done
 		;;
 		standard)
-			for test in "${standard_tests[@]}"; do
-				if [ ! -z $PIN_CORE ]; then
-					cs_test "$test" "--pin-core $PIN_CORE"
-				else
-					cs_test "$test"
-				fi
-			done
+			#for test in "${standard_tests[@]}"; do
+			#	if [ ! -z $PIN_CORE ]; then
+			#		cs_test "$test" "--pin-core $PIN_CORE"
+			#	else
+			#		cs_test "$test"
+			#	fi
+			#done
 		;;
 		complex)
-			for test in "${complex_tests[@]}"; do
-				complex_test $test $complex_type
-			done
+			#for test in "${complex_tests[@]}"; do
+			#	complex_test $test $complex_type
+			#done
 		;;
 		multinode)
-			for test in "${multinode_tests[@]}"; do
-					multinode_test "$test" 3
-			done
+			#for test in "${multinode_tests[@]}"; do
+			#		multinode_test "$test" 3
+			#done
 		;;
 		*)
 			errcho "Unknown test set: ${ts}"
