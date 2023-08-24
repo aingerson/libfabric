@@ -66,7 +66,7 @@ static ssize_t smr_rma_fast(struct smr_ep *ep, struct smr_region *peer_smr,
 			uint32_t op, uint64_t op_flags)
 {
 	struct iovec vma_iovec[SMR_IOV_LIMIT], rma_iovec[SMR_IOV_LIMIT];
-	struct xpmem_client *xpmem;
+	struct xpmem_client *xpmem = NULL;
 	struct smr_cmd *cmd;
 	size_t total_len;
 	int ret, i;
@@ -82,7 +82,7 @@ static ssize_t smr_rma_fast(struct smr_ep *ep, struct smr_region *peer_smr,
 
 	total_len = ofi_total_iov_len(iov, iov_count);
 
-	xpmem = &smr_peer_data(ep->region)[id].xpmem;
+	//xpmem = &smr_peer_data(ep->region)[id].xpmem;
 
 	ret = ofi_shm_p2p_copy(ep->p2p_type, vma_iovec, iov_count,
 			       rma_iovec, rma_count, total_len, peer_smr->pid,

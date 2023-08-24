@@ -1358,8 +1358,8 @@ static int smr_ep_ctrl(struct fid *fid, int command, void *arg)
 		 * endpoint p2p to XPMEM so it can be used on the fast
 		 * path
 		 */
-		if (ep->region->xpmem_cap_self == SMR_VMA_CAP_ON)
-			ep->p2p_type = FI_SHM_P2P_XPMEM;
+	//	if (ep->region->xpmem_cap_self == SMR_VMA_CAP_ON)
+	//		ep->p2p_type = FI_SHM_P2P_XPMEM;
 
 		break;
 	default:

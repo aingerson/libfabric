@@ -289,11 +289,11 @@ int smr_create(const struct fi_provider *prov, struct smr_map *map,
 	(*smr)->cma_cap_peer = SMR_VMA_CAP_NA;
 	(*smr)->cma_cap_self = SMR_VMA_CAP_NA;
 
-	(*smr)->xpmem_cap_self = SMR_VMA_CAP_OFF;
-	if (xpmem && smr_env.use_xpmem) {
-		(*smr)->xpmem_cap_self = SMR_VMA_CAP_ON;
-		(*smr)->xpmem_self = xpmem->pinfo;
-	}
+	// (*smr)->xpmem_cap_self = SMR_VMA_CAP_OFF;
+	// if (xpmem && smr_env.use_xpmem) {
+	// 	(*smr)->xpmem_cap_self = SMR_VMA_CAP_ON;
+	// 	(*smr)->xpmem_self = xpmem->pinfo;
+	// }
 
 	(*smr)->base_addr = *smr;
 
@@ -320,7 +320,7 @@ int smr_create(const struct fi_provider *prov, struct smr_map *map,
 		smr_peer_addr_init(&smr_peer_data(*smr)[i].addr);
 		smr_peer_data(*smr)[i].sar = false;
 		smr_peer_data(*smr)[i].name_sent = 0;
-		smr_peer_data(*smr)[i].xpmem.cap = SMR_VMA_CAP_OFF;
+		//smr_peer_data(*smr)[i].xpmem.cap = SMR_VMA_CAP_OFF;
 	}
 
 	strncpy((char *) smr_name(*smr), attr->name, total_size - name_offset);
@@ -464,7 +464,7 @@ out:
 
 void smr_map_to_endpoint(struct smr_region *region, int64_t id)
 {
-	int ret;
+//	int ret;
 	struct smr_region *peer_smr;
 	struct smr_peer_data *local_peers;
 
@@ -485,20 +485,20 @@ void smr_map_to_endpoint(struct smr_region *region, int64_t id)
 		smr_cma_check(region, peer_smr);
 
 	/* enable xpmem locally if the peer also has it enabled */
-	if (peer_smr->xpmem_cap_self == SMR_VMA_CAP_ON &&
-	    region->xpmem_cap_self == SMR_VMA_CAP_ON) {
-		ret = ofi_xpmem_enable(&peer_smr->xpmem_self,
-				       &local_peers[id].xpmem);
-		if (ret) {
-			local_peers[id].xpmem.cap = SMR_VMA_CAP_OFF;
-			region->xpmem_cap_self = SMR_VMA_CAP_OFF;
-			return;
-		}
-		local_peers[id].xpmem.cap = SMR_VMA_CAP_ON;
-		local_peers[id].xpmem.addr_max = peer_smr->xpmem_self.address_max;
-	} else {
-		local_peers[id].xpmem.cap = SMR_VMA_CAP_OFF;
-	}
+	// if (peer_smr->xpmem_cap_self == SMR_VMA_CAP_ON &&
+	//     region->xpmem_cap_self == SMR_VMA_CAP_ON) {
+	// 	ret = ofi_xpmem_enable(&peer_smr->xpmem_self,
+	// 			       &local_peers[id].xpmem);
+	// 	if (ret) {
+	// 		local_peers[id].xpmem.cap = SMR_VMA_CAP_OFF;
+	// 		region->xpmem_cap_self = SMR_VMA_CAP_OFF;
+	// 		return;
+	// 	}
+	// 	local_peers[id].xpmem.cap = SMR_VMA_CAP_ON;
+	// 	local_peers[id].xpmem.addr_max = peer_smr->xpmem_self.address_max;
+	// } else {
+	// 	local_peers[id].xpmem.cap = SMR_VMA_CAP_OFF;
+	// }
 
 	return;
 }
@@ -522,7 +522,7 @@ void smr_unmap_from_endpoint(struct smr_region *region, int64_t id)
 	peer_peers[peer_id].addr.id = -1;
 	peer_peers[peer_id].name_sent = 0;
 
-	ofi_xpmem_release(&local_peers[peer_id].xpmem);
+	//ofi_xpmem_release(&local_peers[peer_id].xpmem);
 }
 
 void smr_exchange_all_peers(struct smr_region *region)

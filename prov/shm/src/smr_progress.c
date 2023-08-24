@@ -211,11 +211,11 @@ static int smr_progress_iov(struct smr_ep *ep, struct smr_cmd *cmd,
 		size_t *total_len, void *context)
 {
 	struct smr_region *peer_smr;
-	struct xpmem_client *xpmem;
+	struct xpmem_client *xpmem = NULL;
 	int ret;
 
 	peer_smr = smr_peer_region(ep->region, cmd->msg.hdr.id);
-	xpmem = &smr_peer_data(ep->region)[cmd->msg.hdr.id].xpmem;
+	//xpmem = &smr_peer_data(ep->region)[cmd->msg.hdr.id].xpmem;
 
 	ret = ofi_shm_p2p_copy(ep->p2p_type, iov, iov_count, cmd->msg.data.iov,
 			       cmd->msg.data.iov_count, cmd->msg.hdr.size,

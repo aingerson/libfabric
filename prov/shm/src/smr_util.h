@@ -183,7 +183,7 @@ struct smr_peer_data {
 	struct smr_addr		addr;
 	bool			sar;//1 for in progress, 0 for no current sar
 	uint32_t		name_sent;
-	struct xpmem_client 	xpmem;
+	//struct xpmem_client 	xpmem;
 	uintptr_t		local_region;
 } __attribute__ ((aligned(16)));
 
@@ -239,9 +239,9 @@ struct smr_region {
 	uint8_t		cma_cap_peer;
 	uint8_t		cma_cap_self;
 	uint32_t	max_sar_buf_per_peer;
-	uint8_t		xpmem_cap_self;
-	struct xpmem_pinfo xpmem_self;
-	struct xpmem_pinfo xpmem_peer;
+//	uint8_t		xpmem_cap_self;
+//	struct xpmem_pinfo xpmem_self;
+//	struct xpmem_pinfo xpmem_peer;
 	void		*base_addr;
 
 	ofi_atomic32_t	signal;
