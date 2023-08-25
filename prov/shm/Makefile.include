@@ -14,11 +14,13 @@ _shm_files = \
 	prov/shm/src/smr_init.c		\
 	prov/shm/src/smr_av.c		\
 	prov/shm/src/smr_signal.h	\
-	prov/shm/src/smr.h		\
-	prov/shm/src/smr_dsa.h		\
-	prov/shm/src/smr_dsa.c		\
+	prov/shm/src/smr_signal.h	\
+	prov/shm/src/smr_util.c		\
 	prov/shm/src/smr_util.h		\
-	prov/shm/src/smr_util.c
+	prov/shm/src/smr.h		\
+	prov/shm/src/smr_fifo.h		\
+	prov/shm/src/smr_dsa.h		\
+	prov/shm/src/smr_dsa.c
 
 
 
