@@ -42,21 +42,30 @@
  * Writes are protected with atomics.
  * Reads are not protected and assumed to be protected with user locking
  */
-struct smr_fifo {
+
+struct smr_fifo_hdr {
 	int64_t		size;
 	int64_t		size_mask;
         int64_t		read_pos;
+};
+
+struct smr_fifo {
+	struct smr_fifo_hdr	hdr;
+
+	uint8_t		pad[64 - sizeof(struct smr_fifo_hdr)];
+
 	ofi_atomic64_t	write_pos;
 	ofi_atomic64_t	free;
+
 	uintptr_t	entries[];
 };
 
 static inline void smr_fifo_init(struct smr_fifo *queue, uint64_t size)
 {
 	assert(size == roundup_power_of_two(size));
-	queue->size = size;
-	queue->size_mask = size - 1;
-	queue->read_pos = 0;
+	queue->hdr.size = size;
+	queue->hdr.size_mask = size - 1;
+	queue->hdr.read_pos = 0;
 	ofi_atomic_initialize64(&queue->write_pos, 0);
 	ofi_atomic_initialize64(&queue->free, size);
 	memset(queue->entries, 0, sizeof(*queue->entries) * size);
@@ -77,7 +86,7 @@ static inline int smr_fifo_commit(struct smr_fifo *queue, uintptr_t val)
 			break;
 	}
 	write = ofi_atomic_inc64(&queue->write_pos) - 1;//TODO add atomic to remove sub
-	queue->entries[write & queue->size_mask] = val;
+	queue->entries[write & queue->hdr.size_mask] = val;
 	return FI_SUCCESS;
 }
 
@@ -86,11 +95,11 @@ static inline uintptr_t smr_fifo_read(struct smr_fifo *queue)
 {
 	uintptr_t val;
 
-	val = queue->entries[queue->read_pos & queue->size_mask];
+	val = queue->entries[queue->hdr.read_pos & queue->hdr.size_mask];
 	if (!val)
 		return 0;
 
-	queue->entries[queue->read_pos++ & queue->size_mask] = 0;
+	queue->entries[queue->hdr.read_pos++ & queue->hdr.size_mask] = 0;
 	ofi_atomic_inc64(&queue->free);
 	return val;
 }

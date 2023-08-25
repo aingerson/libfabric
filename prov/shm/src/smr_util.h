@@ -183,7 +183,7 @@ struct smr_peer_data {
 	struct smr_addr		addr;
 	bool			sar;//1 for in progress, 0 for no current sar
 	uint32_t		name_sent;
-	//struct xpmem_client 	xpmem;
+	struct xpmem_client 	xpmem;
 	uintptr_t		local_region;
 } __attribute__ ((aligned(16)));
 
@@ -235,30 +235,37 @@ struct smr_region {
 	uint8_t		version;
 	uint8_t		resv;
 	uint16_t	flags;
-	int		pid;
+	int		pid; //8
+
 	uint8_t		cma_cap_peer;
 	uint8_t		cma_cap_self;
-	uint32_t	max_sar_buf_per_peer;
-//	uint8_t		xpmem_cap_self;
-//	struct xpmem_pinfo xpmem_self;
-//	struct xpmem_pinfo xpmem_peer;
-	void		*base_addr;
+	uint8_t		xpmem_cap_self;
+	uint8_t		pad1;
+	uint32_t	max_sar_buf_per_peer; //8
 
-	ofi_atomic32_t	signal;
+	void		*base_addr; //8
 
-	struct smr_map	*map;
+	struct smr_map	*map; //8
 
-	size_t		total_size;
-
+	uint32_t		total_size;
 	/* offsets from start of smr_region */
-	size_t		cmd_queue_offset;
-	size_t		conn_queue_offset;
-	size_t		cmd_pool_offset;
-	size_t		inject_pool_offset;
-	size_t		sar_pool_offset;//todo move sar to sender?
-	size_t		peer_data_offset;
-	size_t		name_offset;
-	size_t		sock_name_offset;
+	uint32_t		cmd_queue_offset;
+	uint32_t		conn_queue_offset;
+	uint32_t		cmd_pool_offset;
+
+	uint32_t		inject_pool_offset;
+	uint32_t		sar_pool_offset;//todo move sar to sender?
+	uint32_t		peer_data_offset;
+	uint32_t		name_offset;
+
+	uint32_t		sock_name_offset;
+	uint32_t		pad_explicit;
+
+	//uint8_t			pad2[64];
+	//uint32_t		fail;//on icx
+
+	//struct xpmem_pinfo xpmem_self;//32
+	//struct xpmem_pinfo xpmem_peer;//32
 };
 
 struct smr_inject_buf {

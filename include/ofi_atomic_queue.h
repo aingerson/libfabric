@@ -97,7 +97,7 @@ extern "C" {
 #define OFI_DECLARE_ATOMIC_Q(entrytype, name)			\
 struct name ## _entry {						\
 	ofi_atomic64_t	seq;					\
-	bool		noop;					\
+	uint64_t	noop;					\
 	entrytype	buf;					\
 };								\
 struct name {							\

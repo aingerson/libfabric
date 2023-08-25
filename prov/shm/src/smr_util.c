@@ -108,22 +108,44 @@ size_t smr_calculate_size_offsets(size_t tx_count, size_t rx_count,
 	tx_size = roundup_power_of_two(tx_count);
 	rx_size = roundup_power_of_two(rx_count);
 
+	printf("size of smr %lu\n", sizeof(struct smr_region));
 	/* Align cmd_queue offset to 128-bit boundary. */
-	cmd_queue_offset = ofi_get_aligned_size(sizeof(struct smr_region), 16);
+	//cmd_queue_offset = sizeof(struct smr_region);
+	cmd_queue_offset = ofi_get_aligned_size(sizeof(struct smr_region), 64);
 	conn_queue_offset = cmd_queue_offset + sizeof(struct smr_fifo) +
 			    sizeof(uintptr_t) * rx_size;
+	conn_queue_offset = ofi_get_aligned_size(conn_queue_offset, 64);
 	cmd_pool_offset = conn_queue_offset + sizeof(struct smr_conn_queue) +
 			  sizeof(struct smr_conn_req) * SMR_MAX_PEERS;
+	cmd_pool_offset = ofi_get_aligned_size(cmd_pool_offset, 64);
+
 	inject_pool_offset = cmd_pool_offset +
 		freestack_size(sizeof(struct smr_cmd), tx_size); //double for RMA?
+	inject_pool_offset = ofi_get_aligned_size(inject_pool_offset, 64);
+
 	sar_pool_offset = inject_pool_offset +
 		freestack_size(sizeof(struct smr_inject_buf), rx_size);
+	sar_pool_offset = ofi_get_aligned_size(sar_pool_offset, 64);
+
 	peer_data_offset = sar_pool_offset +
 		freestack_size(sizeof(struct smr_sar_buf), SMR_MAX_PEERS);
+	peer_data_offset = ofi_get_aligned_size(peer_data_offset, 64);
+
 	ep_name_offset = peer_data_offset + sizeof(struct smr_peer_data) *
 		SMR_MAX_PEERS;
+	ep_name_offset = ofi_get_aligned_size(ep_name_offset, 64);
 
 	sock_name_offset = ep_name_offset + SMR_NAME_MAX;
+	sock_name_offset = ofi_get_aligned_size(sock_name_offset, 64);
+
+	printf("command queue offset %lu\n", cmd_queue_offset % 64);
+	printf("conn queue offset %lu\n", conn_queue_offset % 64);
+	printf("inject pool offset %lu\n", inject_pool_offset % 64);
+	printf("sar pool offset %lu\n", sar_pool_offset % 64);
+	printf("peer data offset %lu\n", peer_data_offset % 64);
+
+	printf("ep name offset %lu\n", ep_name_offset % 64);
+	printf("sock name offset %lu\n", sock_name_offset % 64);
 
 	if (cq_offset)
 		*cq_offset = cmd_queue_offset;
@@ -273,7 +295,7 @@ int smr_create(const struct fi_provider *prov, struct smr_map *map,
 
 	*smr = mapped_addr;
 
-	ofi_atomic_initialize32(&(*smr)->signal, 0);
+	//ofi_atomic_initialize32(&(*smr)->signal, 0);
 
 	(*smr)->map = map;
 	(*smr)->version = SMR_VERSION;
@@ -327,6 +349,16 @@ int smr_create(const struct fi_provider *prov, struct smr_map *map,
 
 	/* Must be set last to signal full initialization to peers */
 	(*smr)->pid = getpid();
+
+	// printf("addr version\t%p\n", &(*smr)->version);
+	// printf("addr resv\t%p\n", &(*smr)->resv);
+	// printf("addr flags\t%p\n", &(*smr)->flags);
+	// printf("addr pid\t%p\n", &(*smr)->pid);
+	// printf("addr cma_cap_peer\t%p\n", &(*smr)->cma_cap_peer);
+	// printf("addr cma_cap_self\t%p\n", &(*smr)->cma_cap_self);
+	// printf("addr xpmem_cap_self\t%p\n", &(*smr)->xpmem_cap_self);
+	// printf("addr max_sar_buf_per_peer\t%p\n", &(*smr)->max_sar_buf_per_peer);
+
 	return 0;
 
 remove:
