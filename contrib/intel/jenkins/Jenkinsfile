@@ -3,7 +3,7 @@ import groovy.transform.Field
 properties([disableConcurrentBuilds(abortPrevious: true)])
 @Field def DO_RUN=true
 @Field def TARGET="main"
-@Field def SCRIPT_LOCATION="py_scripts/contrib/intel/jenkins"
+@Field def SCRIPT_LOCATION="contrib/intel/jenkins"
 @Field def RELEASE=false
 @Field def BUILD_MODES=["reg", "dbg", "dl"]
 @Field def PYTHON_VERSION="3.9"
@@ -69,8 +69,8 @@ def run_middleware(providers, stage_name, test, partition, node_num, mpi=null,
   if (imb_grp)
     base_cmd = "${base_cmd} --imb_grp=${imb_grp}"
 
-  if (env.WEEKLY.toBoolean())
-    base_cmd = "${base_cmd} --weekly=${env.WEEKLY}"
+  if (true)
+    base_cmd = "${base_cmd} --weekly=true"
     
   for (prov in providers) {
     if (prov[1]) {
@@ -254,9 +254,9 @@ pipeline {
           sh "${env.SKIP_PATH}/skip.sh ${env.WORKSPACE} ${TARGET}"
           sh "${env.SKIP_PATH}/release.sh ${env.WORKSPACE} ${TARGET}"
           if (env.WEEKLY == null) {
-            weekly = false
+            weekly = true
           } else {
-            weekly = env.WEEKLY.toBoolean()
+            weekly = true
           }
           if (weekly) {
             TIMEOUT="21600" 
@@ -519,7 +519,7 @@ pipeline {
               dir (RUN_LOCATION) {
                 def providers = [['tcp', null], ["verbs","rxm"]]
                 def MPIS = ["mpich"]
-                if (env.WEEKLY.toBoolean()) {
+                if (true) {
                   MPIS = ["impi", "mpich"]
                 }
                 for (def mpi in MPIS) {
@@ -665,7 +665,7 @@ pipeline {
                       "${env.LOG_DIR}")
 
           summarize("all", verbose=false, release=RELEASE,
-                    send_mail=env.WEEKLY.toBoolean())
+                    send_mail=false)
           if (RELEASE) {
             save_summary()
           }
@@ -683,7 +683,7 @@ pipeline {
     success {
       script {
         summarize("all", verbose=true, release=false,
-        send_mail=env.WEEKLY.toBoolean())
+        send_mail=false)
       }
     }
     aborted {
