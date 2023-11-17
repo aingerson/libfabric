@@ -1321,9 +1321,10 @@ static inline struct fid_peer_srx *util_get_peer_srx(struct fid_ep *rx_ep)
 }
 
 int util_ep_srx_context(struct util_domain *domain, size_t rx_size,
-			size_t iov_limit, size_t default_min_mr,
-			ofi_update_func_t update_func,
-			struct ofi_genlock *lock, struct fid_ep **rx_ep);
+			size_t iov_limit, uint64_t op_flags,
+			size_t default_min_multi_recv,
+			ofi_update_func_t update_func, struct ofi_genlock *lock,
+			struct fid_ep **rx_ep);
 int util_srx_close(struct fid *fid);
 int util_srx_bind(struct fid *fid, struct fid *bfid, uint64_t flags);
 ssize_t util_srx_generic_recv(struct fid_ep *ep_fid, const struct iovec *iov,
