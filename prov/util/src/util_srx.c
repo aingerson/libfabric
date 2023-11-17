@@ -740,7 +740,7 @@ ssize_t util_srx_generic_recv(struct fid_ep *ep_fid, const struct iovec *iov,
 					       context, 0, 0, flags);
 		if (!rx_entry)
 			ret = -FI_ENOMEM;
-		else 
+		else
 			slist_insert_tail((struct slist_entry *)
 					  (&rx_entry->peer_entry), queue);
 		goto out;
@@ -1124,9 +1124,10 @@ static void util_srx_init_unexp_peer(struct ofi_dyn_arr *arr, void *item)
 }
 
 int util_ep_srx_context(struct util_domain *domain, size_t rx_size,
-			size_t iov_limit, size_t default_min_multi_recv,
-			ofi_update_func_t update_func,
-			struct ofi_genlock *lock, struct fid_ep **rx_ep)
+			size_t iov_limit, uint64_t op_flags,
+			size_t default_min_multi_recv,
+			ofi_update_func_t update_func, struct ofi_genlock *lock,
+			struct fid_ep **rx_ep)
 {
 	struct util_srx_ctx *srx;
 	struct ofi_bufpool_attr pool_attr = {0};
@@ -1171,6 +1172,7 @@ int util_ep_srx_context(struct util_domain *domain, size_t rx_size,
 	srx->dir_recv = domain->info_domain_caps & FI_DIRECTED_RECV;
 	srx->update_func = update_func;
 	srx->lock = lock;
+	srx->rx_op_flags = op_flags;
 
 	srx->peer_srx.owner_ops = &util_srx_owner_ops;
 	srx->peer_srx.peer_ops = NULL;
