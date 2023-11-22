@@ -53,6 +53,13 @@ static inline void **util_srx_desc(struct util_srx_ctx *srx,
 			(sizeof(struct iovec) * srx->iov_limit));
 }
 
+static inline char *util_srx_data(struct util_srx_ctx *srx,
+				   struct util_rx_entry *rx_entry)
+{
+	return (char *) ((char *) util_srx_desc(srx, rx_entry) +
+			(sizeof(void *) * srx->iov_limit));
+}
+
 static void util_init_rx_entry(struct util_rx_entry *entry,
 			       const struct iovec *iov, void **desc,
 			       size_t count, fi_addr_t addr, void *context,
@@ -108,6 +115,9 @@ static struct util_rx_entry *util_init_unexp(struct util_srx_ctx *srx,
 	util_entry->peer_entry.addr = addr;
 	util_entry->peer_entry.tag = tag;
 	util_entry->peer_entry.flags = flags;
+	util_entry->peer_entry.iov[0].iov_base = util_entry->msg_data;
+	util_entry->peer_entry.iov[0].iov_len = srx->msg_data_size;
+	util_entry->peer_entry.count = 1;
 
 	return util_entry;
 }
@@ -1107,6 +1117,7 @@ static void util_rx_entry_init(struct ofi_bufpool_region *region, void *buf)
 
 	rx_entry->peer_entry.iov = util_srx_iov(rx_entry);
 	rx_entry->peer_entry.desc = util_srx_desc(srx, rx_entry);
+	rx_entry->msg_data = util_srx_data(srx, rx_entry);
 }
 
 static void util_srx_init_slist(struct ofi_dyn_arr *arr, void *item)
@@ -1124,8 +1135,8 @@ static void util_srx_init_unexp_peer(struct ofi_dyn_arr *arr, void *item)
 }
 
 int util_ep_srx_context(struct util_domain *domain, size_t rx_size,
-			size_t iov_limit, uint64_t op_flags,
-			size_t default_min_multi_recv,
+			size_t iov_limit, size_t msg_data_size,
+			uint64_t op_flags, size_t default_min_multi_recv,
 			ofi_update_func_t update_func, struct ofi_genlock *lock,
 			struct fid_ep **rx_ep)
 {
@@ -1153,7 +1164,7 @@ int util_ep_srx_context(struct util_domain *domain, size_t rx_size,
 
 	//each entry has the iovs and descriptors stored at the end of the entry
 	//calculate how much space each entry needs based on provider iov limits
-	pool_attr.size = sizeof(struct util_rx_entry) +
+	pool_attr.size = sizeof(struct util_rx_entry) + msg_data_size +
 		(sizeof(struct iovec) + sizeof(void *)) * iov_limit;
 	pool_attr.alignment = 16;
 	pool_attr.chunk_cnt = rx_size,

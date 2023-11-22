@@ -1264,11 +1264,13 @@ struct util_rx_entry {
 	uint64_t		seq_no;
 	uint64_t		ignore;
 	int			multi_recv_ref;
-	/* extra memory allocated at the end of each entry to hold iovecs and
-	 * MR descriptors. The amount of memory is determined by the provider's
-	 * iov limit.
+	char			*msg_data;
+	/* extra memory allocated at the end of each entry to hold iovecs,
+	 * MR descriptors, and optional message data. The amount of memory is
+	 * determined by the provider's iov limit and msg data size.
 	 * struct iovec iov[]
 	 * void *desc[]
+	 * char msg_data[]
 	 */
 };
 
@@ -1291,6 +1293,7 @@ struct util_srx_ctx {
 	uint64_t		rx_op_flags;
 	uint64_t		rx_msg_flags;
 	size_t			iov_limit;
+	size_t			msg_data_size;
 	ofi_update_func_t	update_func;
 
 	struct util_cq		*cq;
@@ -1322,9 +1325,14 @@ static inline struct fid_peer_srx *util_get_peer_srx(struct fid_ep *rx_ep)
 	return (struct fid_peer_srx *) rx_ep->fid.context;
 }
 
+static inline void *util_get_msg_data(struct fi_peer_rx_entry *rx_entry)
+{
+	return container_of(rx_entry, struct util_rx_entry, peer_entry)->msg_data;
+}
+
 int util_ep_srx_context(struct util_domain *domain, size_t rx_size,
-			size_t iov_limit, uint64_t op_flags,
-			size_t default_min_multi_recv,
+			size_t iov_limit, size_t msg_data_size,
+			uint64_t op_flags, size_t default_min_multi_recv,
 			ofi_update_func_t update_func, struct ofi_genlock *lock,
 			struct fid_ep **rx_ep);
 int util_srx_close(struct fid *fid);

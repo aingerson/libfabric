@@ -1274,8 +1274,9 @@ int rxm_srx_context(struct fid_domain *domain, struct fi_rx_attr *attr,
 		return FI_SUCCESS;
 	}
 	return util_ep_srx_context(&rxm_domain->util_domain, attr->size,
-				   RXM_IOV_LIMIT, rxm_buffer_size,
-				   rxm_peer_update_rx,
+				   RXM_IOV_LIMIT, sizeof(struct rxm_proto_info),
+				   attr->op_flags,
+				   rxm_buffer_size, rxm_peer_update_rx,
 				   &rxm_domain->util_domain.lock, rx_ep);
 }
 
@@ -1369,7 +1370,9 @@ static int rxm_ep_ctrl(struct fid *fid, int command, void *arg)
 					      util_domain.domain_fid);
 			ret = util_ep_srx_context(&domain->util_domain,
 					ep->rxm_info->rx_attr->size,
-					RXM_IOV_LIMIT, rxm_buffer_size,
+					RXM_IOV_LIMIT, sizeof(struct rxm_proto_info),
+					ep->util_ep.rx_op_flags,
+					rxm_buffer_size,
 					rxm_peer_update_rx, &ep->util_ep.lock,
 					&ep->srx);
 			if (ret)

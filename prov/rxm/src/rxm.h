@@ -479,7 +479,6 @@ struct rxm_rx_buf {
 	struct rxm_conn *conn;		/* msg ep data was received on */
 	/* if recv_entry is set, then we matched dyn rbuf */
 	struct fi_peer_rx_entry *peer_entry;
-	struct rxm_proto_info *proto_info;
 	uint64_t comp_flags;
 	struct fi_recv_context recv_context;
 	bool repost;

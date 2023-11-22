@@ -1739,7 +1739,6 @@ int rxm_post_recv(struct rxm_rx_buf *rx_buf)
 		rx_buf->conn = NULL;
 	rx_buf->hdr.state = RXM_RX;
 	rx_buf->peer_entry = NULL;
-	rx_buf->proto_info = NULL;
 
 	domain = container_of(rx_buf->ep->util_ep.domain,
 			      struct rxm_domain, util_domain);
