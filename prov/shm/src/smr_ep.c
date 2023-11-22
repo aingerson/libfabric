@@ -1366,7 +1366,7 @@ static int smr_ep_ctrl(struct fid *fid, int command, void *arg)
 					      struct smr_domain,
 					      util_domain.domain_fid);
 			ret = util_ep_srx_context(&domain->util_domain,
-					ep->rx_size, SMR_IOV_LIMIT,
+					ep->rx_size, SMR_IOV_LIMIT, 0,
 					ep->util_ep.rx_op_flags,
 					SMR_INJECT_SIZE, &smr_update,
 					&ep->util_ep.lock, &ep->srx);
