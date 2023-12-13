@@ -50,14 +50,14 @@ static inline void **util_srx_desc(struct util_srx_ctx *srx,
 				   struct util_rx_entry *rx_entry)
 {
 	return (void **) ((char *) util_srx_iov(rx_entry) +
-			(sizeof(struct iovec) * srx->iov_limit));
+			(util_srx_iov_size(srx)));
 }
 
 static inline char *util_srx_data(struct util_srx_ctx *srx,
 				   struct util_rx_entry *rx_entry)
 {
 	return (char *) ((char *) util_srx_desc(srx, rx_entry) +
-			(sizeof(void *) * srx->iov_limit));
+			(util_srx_desc_size(srx)));
 }
 
 static void util_init_rx_entry(struct util_rx_entry *entry,
@@ -198,8 +198,8 @@ static int util_match_msg(struct fid_peer_srx *srx, fi_addr_t addr, size_t size,
 			(void) slist_remove_head(&srx_ctx->msg_queue);
 		}
 		util_entry->peer_entry.srx = srx;
-		srx_ctx->update_func(srx_ctx, util_entry);
 	}
+	srx_ctx->update_func(srx_ctx, util_entry);
 	*rx_entry = &util_entry->peer_entry;
 	return ret;
 }
@@ -263,7 +263,6 @@ static int util_match_tag(struct fid_peer_srx *srx, fi_addr_t addr,
 		if (ofi_match_tag(util_entry->peer_entry.tag,
 				  util_entry->ignore, tag)) {
 			util_entry->peer_entry.srx = srx;
-			srx_ctx->update_func(srx_ctx, util_entry);
 			slist_remove(&srx_ctx->tag_queue, item, prev);
 			goto out;
 		}
@@ -275,6 +274,7 @@ static int util_match_tag(struct fid_peer_srx *srx, fi_addr_t addr,
 	ret = -FI_ENOENT;
 	util_entry->peer_entry.srx = srx;
 out:
+	srx_ctx->update_func(srx_ctx, util_entry);
 	*rx_entry = &util_entry->peer_entry;
 	return ret;
 }

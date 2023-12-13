@@ -534,6 +534,7 @@ void rxm_ep_progress_deferred_queue(struct rxm_ep *rxm_ep,
 				    struct rxm_conn *rxm_conn)
 {
 	struct rxm_deferred_tx_entry *def_tx_entry;
+	struct rxm_proto_info *proto_info;
 	struct iovec iov;
 	struct fi_msg msg;
 	ssize_t ret = 0;
@@ -546,12 +547,11 @@ void rxm_ep_progress_deferred_queue(struct rxm_ep *rxm_ep,
 					    struct rxm_deferred_tx_entry, entry);
 		switch (def_tx_entry->type) {
 		case RXM_DEFERRED_TX_RNDV_ACK:
+			proto_info = util_get_msg_data(def_tx_entry->rndv_ack.rx_buf->peer_entry);
 			ret = fi_send(def_tx_entry->rxm_conn->msg_ep,
-				      &def_tx_entry->rndv_ack.rx_buf->
-					proto_info->rndv.tx_buf->pkt,
+				      &proto_info->rndv.tx_buf->pkt,
 				      def_tx_entry->rndv_ack.pkt_size,
-				      def_tx_entry->rndv_ack.rx_buf->proto_info->
-					rndv.tx_buf->hdr.desc,
+				      proto_info->rndv.tx_buf->hdr.desc,
 				      0, def_tx_entry->rndv_ack.rx_buf);
 			if (ret) {
 				if (ret == -FI_EAGAIN)
@@ -561,9 +561,7 @@ void rxm_ep_progress_deferred_queue(struct rxm_ep *rxm_ep,
 						   def_tx_entry->rndv_ack.rx_buf->
 						   peer_entry->context, (int) ret);
 			}
-			if (def_tx_entry->rndv_ack.rx_buf->proto_info->rndv
-				    .tx_buf->pkt.ctrl_hdr
-				    .type == rxm_ctrl_rndv_rd_done)
+			if (proto_info->rndv.tx_buf->pkt.ctrl_hdr.type == rxm_ctrl_rndv_rd_done)
 				RXM_UPDATE_STATE(FI_LOG_EP_DATA,
 						 def_tx_entry->rndv_ack.rx_buf,
 						 RXM_RNDV_READ_DONE_SENT);
@@ -1252,8 +1250,13 @@ static void
 rxm_peer_update_rx(struct util_srx_ctx *srx, struct util_rx_entry *rx_entry)
 {
 	struct rxm_mr *mr;
+	struct rxm_proto_info *proto_info;
 	int i;
 
+	proto_info = (struct rxm_proto_info *) rx_entry->msg_data;
+	proto_info->sar.msg_id = RXM_SAR_RX_INIT;
+	proto_info->sar.total_recv_len = 0;
+	proto_info->rndv.tx_buf = NULL;
 	for (i = 0; i < rx_entry->peer_entry.count; i++) {
 		mr = rx_entry->peer_entry.desc[i];
 		rx_entry->peer_entry.desc[i] = mr ? mr->shm_mr : NULL;
@@ -1371,8 +1374,7 @@ static int rxm_ep_ctrl(struct fid *fid, int command, void *arg)
 			ret = util_ep_srx_context(&domain->util_domain,
 					ep->rxm_info->rx_attr->size,
 					RXM_IOV_LIMIT, sizeof(struct rxm_proto_info),
-					ep->util_ep.rx_op_flags,
-					rxm_buffer_size,
+					ep->util_ep.rx_op_flags, rxm_buffer_size,
 					rxm_peer_update_rx, &ep->util_ep.lock,
 					&ep->srx);
 			if (ret)
@@ -1769,7 +1771,8 @@ int rxm_endpoint(struct fid_domain *domain, struct fi_info *info,
 		rxm_ep->rndv_ops = &rxm_rndv_ops_read;
 	dlist_init(&rxm_ep->rndv_wait_list);
 
-	if (rxm_passthru_info(info) || !rxm_ep->shm_ep) {
+	if (rxm_passthru_info(info) && !rxm_ep->shm_ep) {
+		printf("do passthru\n");
 		(*ep_fid)->msg = &rxm_msg_thru_ops;
 		(*ep_fid)->rma = &rxm_rma_thru_ops;
 		(*ep_fid)->tagged = &rxm_tagged_thru_ops;

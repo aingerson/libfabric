@@ -58,7 +58,7 @@ size_t rxm_packet_size;
 int rxm_passthru = 0; /* disable by default, need to analyze performance */
 int force_auto_progress;
 int rxm_use_write_rndv;
-int rxm_enable_shm = 1;
+int rxm_enable_shm = 0;
 enum fi_wait_obj def_wait_obj = FI_WAIT_FD, def_tcp_wait_obj = FI_WAIT_UNSPEC;
 
 char *rxm_proto_state_str[] = {
