@@ -1779,6 +1779,7 @@ int rxm_prepost_recv(struct rxm_ep *ep, struct fid_ep *rx_ep)
 void rxm_ep_do_progress(struct util_ep *util_ep)
 {
 	struct rxm_ep *rxm_ep = container_of(util_ep, struct rxm_ep, util_ep);
+	struct rxm_cq *rxm_cq;
 	struct fi_cq_data_entry comp[32];
 	struct dlist_entry *conn_entry_tmp;
 	struct rxm_conn *rxm_conn;
@@ -1829,6 +1830,13 @@ void rxm_ep_do_progress(struct util_ep *util_ep)
 			rxm_ep_progress_deferred_queue(rxm_ep, rxm_conn);
 		}
 	}
+
+	if (rxm_ep->shm_ep) {
+		rxm_cq = container_of(rxm_ep->util_ep.rx_cq,
+				      struct rxm_cq, util_cq);
+		ret = fi_cq_read(rxm_cq->shm_cq, NULL, 0);
+		assert(!ret || ret == -FI_EAGAIN);
+	}
 }
 
 void rxm_ep_progress(struct util_ep *util_ep)
@@ -1870,6 +1878,8 @@ static int rxm_cq_close(struct fid *fid)
 
 	if (rxm_cq->util_coll_cq)
 		fi_close(&rxm_cq->util_coll_cq->fid);
+	if (rxm_cq->shm_cq)
+		fi_close(&rxm_cq->shm_cq->fid);
 
 	ret = ofi_cq_cleanup(&rxm_cq->util_cq);
 	if (ret)
@@ -1954,6 +1964,16 @@ int rxm_cq_open(struct fid_domain *domain, struct fi_cq_attr *attr,
 				 &rxm_cq->offload_coll_cq, &peer_cq_context);
 		if (ret)
 			goto err2;
+	}
+
+	if (rxm_domain->shm_domain) {
+		peer_cq_context.cq = rxm_cq->util_cq.peer_cq;
+
+		ret = fi_cq_open(rxm_domain->shm_domain, &peer_cq_attr,
+				 &rxm_cq->shm_cq, &peer_cq_context);
+		if (ret) {
+			assert(0);
+		}
 	}
 
 	*cq_fid = &rxm_cq->util_cq.cq_fid;
