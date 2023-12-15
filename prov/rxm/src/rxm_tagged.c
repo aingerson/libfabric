@@ -315,6 +315,12 @@ rxm_tinject(struct fid_ep *ep_fid, const void *buf, size_t len,
 	if (ret)
 		goto unlock;
 
+
+	if (rxm_conn->peer->fi_addr != FI_ADDR_NOTAVAIL) {
+		ofi_genlock_unlock(&rxm_ep->util_ep.lock);
+		return fi_tinject(rxm_ep->shm_ep, buf, len, dest_addr, tag);
+	}
+
 	rxm_ep->inject_pkt->hdr.op = ofi_op_tagged;
 	rxm_ep->inject_pkt->hdr.flags = 0;
 	rxm_ep->inject_pkt->hdr.tag = tag;
@@ -374,6 +380,12 @@ rxm_tinjectdata(struct fid_ep *ep_fid, const void *buf, size_t len,
 	ret = rxm_get_conn(rxm_ep, dest_addr, &rxm_conn);
 	if (ret)
 		goto unlock;
+
+	if (rxm_conn->peer->fi_addr != FI_ADDR_NOTAVAIL) {
+		ofi_genlock_unlock(&rxm_ep->util_ep.lock);
+		return fi_tinjectdata(rxm_ep->shm_ep, buf, len, data,
+				      dest_addr, tag);
+	}
 
 	rxm_ep->inject_pkt->hdr.op = ofi_op_tagged;
 	rxm_ep->inject_pkt->hdr.flags = FI_REMOTE_CQ_DATA;
