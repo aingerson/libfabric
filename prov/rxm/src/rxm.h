@@ -298,6 +298,7 @@ struct rxm_eq {
 struct rxm_cntr {
 	struct util_cntr util_cntr;
 
+	struct fid_cntr *shm_cntr;
 	/* Used in passthru mode */
 	struct fid_cntr *msg_cntr;
 };

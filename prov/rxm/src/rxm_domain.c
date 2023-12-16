@@ -290,6 +290,12 @@ rxm_cntr_open(struct fid_domain *fid_domain, struct fi_cntr_attr *attr,
 {
 	struct rxm_domain *domain;
 	struct rxm_cntr *cntr;
+	struct fi_cntr_attr peer_cntr_attr = {
+		.flags = FI_PEER,
+	};
+	struct fi_peer_cntr_context peer_cntr_context = {
+		.size = sizeof(struct fi_peer_cntr_context),
+	};
 	int ret;
 
 	domain = container_of(fid_domain, struct rxm_domain,
@@ -314,6 +320,17 @@ rxm_cntr_open(struct fid_domain *fid_domain, struct fi_cntr_attr *attr,
 		cntr->util_cntr.cntr_fid.ops = &rxm_passthru_cntr_ops;
 	}
 
+	if (domain->shm_domain) {
+		peer_cntr_context.cntr = cntr->util_cntr.peer_cntr;
+
+		ret = fi_cntr_open(domain->shm_domain, &peer_cntr_attr,
+				   &cntr->shm_cntr, &peer_cntr_context);
+		if (ret) {
+			assert(0);
+		}
+	}
+
+	//TODO override cntr ops to close shm cntr fid
 	*cntr_fid = &cntr->util_cntr.cntr_fid;
 	return FI_SUCCESS;
 

@@ -1420,6 +1420,7 @@ static int rxm_ep_bind(struct fid *ep_fid, struct fid *bfid, uint64_t flags)
 	struct rxm_av *rxm_av;
 	struct rxm_cq *rxm_cq;
 	struct rxm_eq *rxm_eq;
+	struct rxm_cntr *rxm_cntr;
 	int ret, retv = 0;
 
 	rxm_ep = container_of(ep_fid, struct rxm_ep, util_ep.ep_fid.fid);
@@ -1471,7 +1472,17 @@ static int rxm_ep_bind(struct fid *ep_fid, struct fid *bfid, uint64_t flags)
 			}
 		}
 		break;
-
+	case FI_CLASS_CNTR:
+		rxm_cntr = container_of(bfid, struct rxm_cntr,
+					util_cntr.cntr_fid.fid);
+		if (rxm_ep->shm_ep) {
+			ret = fi_ep_bind(rxm_ep->shm_ep,
+					 &rxm_cntr->shm_cntr->fid, flags);
+			if (ret) {
+				assert(0);
+			}
+		}
+		break;
 	case FI_CLASS_EQ:
 		rxm_eq = container_of(bfid, struct rxm_eq, util_eq.eq_fid.fid);
 		if (rxm_ep->util_coll_ep && rxm_eq->util_coll_eq) {
