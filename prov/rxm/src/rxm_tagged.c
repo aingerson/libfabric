@@ -223,7 +223,7 @@ rxm_tsendmsg(struct fid_ep *ep_fid, const struct fi_msg_tagged *msg,
 	if (ret)
 		goto unlock;
 
-	if (rxm_ep->shm_ep && rxm_conn->peer->shm_addr != FI_ADDR_NOTAVAIL) {
+	if (rxm_conn->peer->shm_addr != FI_ADDR_NOTAVAIL) {
 		ofi_genlock_unlock(&rxm_ep->util_ep.lock);
 		return rxm_send_common_shm(rxm_ep, rxm_conn, msg->msg_iov,
 				msg->desc, msg->iov_count, msg->context,
@@ -258,7 +258,7 @@ rxm_tsend(struct fid_ep *ep_fid, const void *buf, size_t len,
 	if (ret)
 		goto unlock;
 
-	if (rxm_ep->shm_ep && rxm_conn->peer->shm_addr != FI_ADDR_NOTAVAIL) {
+	if (rxm_conn->peer->shm_addr != FI_ADDR_NOTAVAIL) {
 		ofi_genlock_unlock(&rxm_ep->util_ep.lock);
 		return rxm_send_common_shm(rxm_ep, rxm_conn, &iov, &desc, 1,
 				context, 0, rxm_ep->util_ep.tx_op_flags, tag,
@@ -287,7 +287,7 @@ rxm_tsendv(struct fid_ep *ep_fid, const struct iovec *iov,
 	if (ret)
 		goto unlock;
 
-	if (rxm_ep->shm_ep && rxm_conn->peer->shm_addr != FI_ADDR_NOTAVAIL) {
+	if (rxm_conn->peer->shm_addr != FI_ADDR_NOTAVAIL) {
 		ofi_genlock_unlock(&rxm_ep->util_ep.lock);
 		return rxm_send_common_shm(rxm_ep, rxm_conn, iov, desc, count,
 				context, 0,  rxm_ep->util_ep.tx_op_flags, tag,
@@ -315,8 +315,7 @@ rxm_tinject(struct fid_ep *ep_fid, const void *buf, size_t len,
 	if (ret)
 		goto unlock;
 
-
-	if (rxm_conn->peer->fi_addr != FI_ADDR_NOTAVAIL) {
+	if (rxm_conn->peer->shm_addr != FI_ADDR_NOTAVAIL) {
 		ofi_genlock_unlock(&rxm_ep->util_ep.lock);
 		return fi_tinject(rxm_ep->shm_ep, buf, len, dest_addr, tag);
 	}
@@ -351,7 +350,7 @@ rxm_tsenddata(struct fid_ep *ep_fid, const void *buf, size_t len,
 	if (ret)
 		goto unlock;
 
-	if (rxm_ep->shm_ep && rxm_conn->peer->shm_addr != FI_ADDR_NOTAVAIL) {
+	if (rxm_conn->peer->shm_addr != FI_ADDR_NOTAVAIL) {
 		ofi_genlock_unlock(&rxm_ep->util_ep.lock);
 		return rxm_send_common_shm(rxm_ep, rxm_conn, &iov, &desc, 1,
 				context, data,
@@ -381,7 +380,7 @@ rxm_tinjectdata(struct fid_ep *ep_fid, const void *buf, size_t len,
 	if (ret)
 		goto unlock;
 
-	if (rxm_conn->peer->fi_addr != FI_ADDR_NOTAVAIL) {
+	if (rxm_conn->peer->shm_addr != FI_ADDR_NOTAVAIL) {
 		ofi_genlock_unlock(&rxm_ep->util_ep.lock);
 		return fi_tinjectdata(rxm_ep->shm_ep, buf, len, data,
 				      dest_addr, tag);
