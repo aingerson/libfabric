@@ -585,7 +585,6 @@ static void rxm_mr_init(struct rxm_mr *rxm_mr, struct rxm_domain *domain,
 static int rxm_mr_regattr(struct fid *fid, const struct fi_mr_attr *attr,
 			  uint64_t flags, struct fid_mr **mr)
 {
-	struct rxm_fabric *rxm_fabric;
 	struct rxm_domain *rxm_domain;
 	struct fi_mr_attr msg_attr = *attr;
 	struct rxm_mr *rxm_mr;
@@ -636,17 +635,12 @@ static int rxm_mr_regattr(struct fid *fid, const struct fi_mr_attr *attr,
 	}
 
 	if (rxm_domain->shm_domain) { //TODO align shm MR mode with rxm mode
-		rxm_fabric = container_of(rxm_domain->util_domain.fabric,
-					  struct rxm_fabric, util_fabric);
-		if (rxm_fabric->shm_info->domain_attr->mr_mode &
-		    (FI_MR_LOCAL | FI_MR_HMEM)) {
-			ret = fi_mr_regattr(rxm_domain->shm_domain, attr, flags,
-					    &rxm_mr->shm_mr);
-			if (ret) {
-				//FI_WARN, disable?
-			}
-			rxm_mr->shm_desc = fi_mr_desc(rxm_mr->shm_mr);
-		    }
+		ret = fi_mr_regattr(rxm_domain->shm_domain, attr, flags,
+				    &rxm_mr->shm_mr);
+		if (ret) {
+			//FI_WARN, disable?
+		}
+		rxm_mr->shm_desc = fi_mr_desc(rxm_mr->shm_mr);
 	}
 
 	if (rxm_domain->util_domain.info_domain_caps & FI_ATOMIC) {
@@ -921,6 +915,7 @@ static void rxm_init_shm_fabric(struct rxm_fabric *rxm_fabric,
 
 	shm_hints = fi_allocinfo();
 	*shm_hints->domain_attr = *info->domain_attr;
+	shm_hints->domain_attr->mr_mode &= ~FI_MR_PROV_KEY;//pass thru keys from rxm to shm
 	shm_hints->domain_attr->caps = FI_LOCAL_COMM;
 	shm_hints->caps = info->caps & ~FI_REMOTE_COMM;
 	*shm_hints->tx_attr = *info->tx_attr;
