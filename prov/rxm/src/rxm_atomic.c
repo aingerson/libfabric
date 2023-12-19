@@ -500,7 +500,7 @@ int rxm_ep_query_atomic(struct fid_domain *domain, enum fi_datatype datatype,
 	struct rxm_domain *rxm_domain = container_of(domain,
 						     struct rxm_domain,
 						     util_domain.domain_fid);
-	size_t tot_size;
+	size_t tot_size, max;
 	int ret;
 
 	if (flags & FI_TAGGED) {
@@ -519,9 +519,10 @@ int rxm_ep_query_atomic(struct fid_domain *domain, enum fi_datatype datatype,
 	if (ret || !attr)
 		return ret;
 
-	tot_size = flags & FI_COMPARE_ATOMIC ?
-		   rxm_domain->max_atomic_size / 2 :
-		   rxm_domain->max_atomic_size;
+	max = rxm_enable_shm ?
+		RXM_SMR_INJECT_SIZE : rxm_domain->max_atomic_size;
+
+	tot_size = flags & FI_COMPARE_ATOMIC ? max / 2 : max;
 	attr->size = ofi_datatype_size(datatype);
 	if (!attr->size)
 		return -FI_EOPNOTSUPP;

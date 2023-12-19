@@ -134,6 +134,9 @@ extern size_t rxm_packet_size;
 #define RXM_PASSTHRU_TX_OP_FLAGS (FI_TRANSMIT_COMPLETE)
 
 #define RXM_PASSTHRU_RX_OP_FLAGS 0ULL
+//TODO maybe figure out a better way to do this other than hard coding sizes
+//and having to know about shm atomic sizes and protocols
+#define RXM_SMR_INJECT_SIZE 4096
 
 #define RXM_TX_OP_FLAGS (FI_INJECT | FI_INJECT_COMPLETE | \
 			 FI_DELIVERY_COMPLETE | FI_COMPLETION)
