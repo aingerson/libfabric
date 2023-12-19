@@ -456,7 +456,8 @@ struct rxm_buf {
 struct rxm_proto_info {
 	/* Used for SAR protocol */
 	struct {
-		struct dlist_entry entry;
+		struct dlist_entry entry;//used for inserting into active list
+		struct dlist_entry pkt_list;//used to store unexpected packets
 		size_t total_recv_len;
 		struct rxm_conn *conn;
 		uint64_t msg_id;
@@ -720,6 +721,7 @@ int rxm_domain_open(struct fid_fabric *fabric, struct fi_info *info,
 int rxm_cq_open(struct fid_domain *domain, struct fi_cq_attr *attr,
 			 struct fid_cq **cq_fid, void *context);
 ssize_t rxm_handle_rx_buf(struct rxm_rx_buf *rx_buf);
+ssize_t rxm_handle_unexp_sar(struct fi_peer_rx_entry *peer_entry);
 
 int rxm_srx_context(struct fid_domain *domain, struct fi_rx_attr *attr,
 		    struct fid_ep **rx_ep, void *context);
@@ -945,4 +947,5 @@ rxm_multi_recv_entry_get(struct rxm_ep *rxm_ep, const struct iovec *iov,
 		   void **desc, size_t count, fi_addr_t src_addr,
 		   uint64_t tag, uint64_t ignore, void *context,
 		   uint64_t flags);
+
 #endif

@@ -85,6 +85,7 @@ static void rxm_init_rx_buf(struct ofi_bufpool_region *region, void *buf)
 			   fi_mr_desc((struct fid_mr *) region->context) : NULL;
 	rx_buf->ep = ep;
 	rx_buf->data = &rx_buf->pkt.data;
+	dlist_init(&rx_buf->unexp_entry);
 }
 
 static void rxm_init_tx_buf(struct ofi_bufpool_region *region, void *buf)
@@ -1229,7 +1230,11 @@ static int rxm_ep_enable_check(struct rxm_ep *rxm_ep)
 
 static int rxm_unexp_start(struct fi_peer_rx_entry *rx_entry)
 {
-	return rxm_handle_rx_buf((struct rxm_rx_buf *) rx_entry->peer_context);
+	struct rxm_rx_buf *rx_buf = rx_entry->peer_context;
+
+	return rx_buf->pkt.ctrl_hdr.type == rxm_ctrl_seg ?
+					    rxm_handle_unexp_sar(rx_entry):
+					    rxm_handle_rx_buf(rx_buf);
 }
 
 static int rxm_discard(struct fi_peer_rx_entry *rx_entry)
@@ -1379,6 +1384,9 @@ static int rxm_ep_ctrl(struct fid *fid, int command, void *arg)
 					&ep->srx);
 			if (ret)
 				return ret;
+
+			util_get_peer_srx(ep->srx)->peer_ops =
+							&rxm_srx_peer_ops;
 			ret = util_srx_bind(&ep->srx->fid,
 					   &ep->util_ep.rx_cq->cq_fid.fid,
 					   FI_RECV);
