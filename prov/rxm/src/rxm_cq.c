@@ -743,6 +743,7 @@ static ssize_t rxm_handle_recv_comp(struct rxm_rx_buf *rx_buf)
 		if (ret == -FI_ENOENT) {
 			rx_buf->ep->dyn_rbuf_unexp_msg_cnt++;
 			rx_entry->peer_context = rx_buf;
+			rx_buf->peer_entry = rx_entry;
 			if (rx_buf->pkt.ctrl_hdr.type == rxm_ctrl_seg) {
 				rxm_init_sar_proto(rx_buf,
 						   util_get_msg_data(rx_entry));
@@ -761,6 +762,7 @@ static ssize_t rxm_handle_recv_comp(struct rxm_rx_buf *rx_buf)
 		if (ret == -FI_ENOENT) {
 			rx_buf->ep->dyn_rbuf_unexp_tag_cnt++;
 			rx_entry->peer_context = rx_buf;
+			rx_buf->peer_entry = rx_entry;
 			if (rx_buf->pkt.ctrl_hdr.type == rxm_ctrl_seg) {
 				rxm_init_sar_proto(rx_buf,
 						   util_get_msg_data(rx_entry));
