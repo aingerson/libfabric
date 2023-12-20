@@ -649,9 +649,6 @@ struct rxm_ep {
 	struct fid_ep		*srx;
 	struct fid_ep		*shm_srx;
 
-	size_t			dyn_rbuf_unexp_msg_cnt;
-	size_t			dyn_rbuf_unexp_tag_cnt;
-
 	struct fid_ep		*shm_ep;
 
 	struct fid_cq 		*msg_cq;

@@ -734,14 +734,9 @@ static ssize_t rxm_handle_recv_comp(struct rxm_rx_buf *rx_buf)
 	switch(rx_buf->pkt.hdr.op) {
 	case ofi_op_msg:
 		FI_DBG(&rxm_prov, FI_LOG_CQ, "Got MSG op\n");
-		if (rx_buf->ep->dyn_rbuf_unexp_msg_cnt) {
-			rx_buf->ep->dyn_rbuf_unexp_msg_cnt++;
-			return 0;
-		}
 		ret = peer_srx->owner_ops->get_msg(peer_srx, addr,
 					rx_buf->pkt.hdr.size, &rx_entry);
 		if (ret == -FI_ENOENT) {
-			rx_buf->ep->dyn_rbuf_unexp_msg_cnt++;
 			rx_entry->peer_context = rx_buf;
 			rx_buf->peer_entry = rx_entry;
 			if (rx_buf->pkt.ctrl_hdr.type == rxm_ctrl_seg) {
@@ -753,14 +748,9 @@ static ssize_t rxm_handle_recv_comp(struct rxm_rx_buf *rx_buf)
 		break;
 	case ofi_op_tagged:
 		FI_DBG(&rxm_prov, FI_LOG_CQ, "Got TAGGED op\n");
-		if (rx_buf->ep->dyn_rbuf_unexp_tag_cnt) {
-			rx_buf->ep->dyn_rbuf_unexp_tag_cnt++;
-			return 0;
-		}
 		ret = peer_srx->owner_ops->get_tag(peer_srx, addr,
 					rx_buf->pkt.hdr.tag, &rx_entry);
 		if (ret == -FI_ENOENT) {
-			rx_buf->ep->dyn_rbuf_unexp_tag_cnt++;
 			rx_entry->peer_context = rx_buf;
 			rx_buf->peer_entry = rx_entry;
 			if (rx_buf->pkt.ctrl_hdr.type == rxm_ctrl_seg) {
