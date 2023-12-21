@@ -168,7 +168,7 @@ static void rxm_finish_recv(struct rxm_rx_buf *rx_buf, size_t done_len)
 	if (rx_buf->peer_entry->flags & FI_COMPLETION ||
 	    rx_buf->ep->rxm_info->mode & FI_BUFFERED_RECV) {
 		rxm_cq_write_recv_comp(rx_buf, rx_buf->peer_entry->context,
-				       rx_buf->comp_flags |
+				       rx_buf->peer_entry->flags |
 				       rx_buf->pkt.hdr.flags,
 				       rx_buf->pkt.hdr.size,
 				       rx_buf->peer_entry->iov[0].iov_base);

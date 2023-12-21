@@ -1255,13 +1255,8 @@ static void
 rxm_peer_update_rx(struct util_srx_ctx *srx, struct util_rx_entry *rx_entry)
 {
 	struct rxm_mr *mr;
-	struct rxm_proto_info *proto_info;
 	int i;
 
-	proto_info = (struct rxm_proto_info *) rx_entry->msg_data;
-	proto_info->sar.msg_id = RXM_SAR_RX_INIT;
-	proto_info->sar.total_recv_len = 0;
-	proto_info->rndv.tx_buf = NULL;
 	for (i = 0; i < rx_entry->peer_entry.count; i++) {
 		mr = rx_entry->peer_entry.desc[i];
 		rx_entry->peer_entry.desc[i] = mr ? mr->shm_mr : NULL;
