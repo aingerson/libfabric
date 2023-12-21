@@ -382,12 +382,15 @@ static void rxm_init_sar_proto(struct rxm_rx_buf *rx_buf,
 
 	proto_info->sar.conn = rx_buf->conn;
 	proto_info->sar.msg_id = rx_buf->pkt.ctrl_hdr.msg_id;
-	dlist_init(&proto_info->sar.pkt_list);
+	proto_info->sar.total_recv_len = 0;
 
 	dlist_insert_tail(&proto_info->sar.entry,
 			  &rx_buf->conn->deferred_sar_msgs);
 
-	dlist_insert_tail(&rx_buf->unexp_entry, &proto_info->sar.pkt_list);
+	if (rx_buf->peer_entry->peer_context) {
+		dlist_init(&proto_info->sar.pkt_list);
+		dlist_insert_tail(&rx_buf->unexp_entry, &proto_info->sar.pkt_list);
+	}
 }
 
 void rxm_process_seg_data(struct rxm_rx_buf *rx_buf)
@@ -431,13 +434,20 @@ void rxm_process_seg_data(struct rxm_rx_buf *rx_buf)
 
 static void rxm_handle_seg_data(struct rxm_rx_buf *rx_buf)
 {
+	struct rxm_proto_info *proto_info;
 	// struct fi_peer_rx_entry *rx_entry;
 	// struct rxm_conn *conn;
 	// uint64_t msg_id;
 	// struct dlist_entry *entry;
 	//int done;
 
-	rxm_process_seg_data(rx_buf);
+	if (!rx_buf->peer_entry->peer_context) {
+		rxm_process_seg_data(rx_buf);
+		return;
+	}
+
+	proto_info = util_get_msg_data(rx_buf->peer_entry);
+	dlist_insert_tail(&rx_buf->unexp_entry, &proto_info->sar.pkt_list);
 
 	//only do this for expected packets (if in unexpected, no target iov)
 
@@ -745,6 +755,7 @@ static ssize_t rxm_handle_recv_comp(struct rxm_rx_buf *rx_buf)
 			}
 			return peer_srx->owner_ops->queue_msg(rx_entry);
 		}
+		rx_entry->peer_context = NULL;
 		break;
 	case ofi_op_tagged:
 		FI_DBG(&rxm_prov, FI_LOG_CQ, "Got TAGGED op\n");
@@ -759,6 +770,7 @@ static ssize_t rxm_handle_recv_comp(struct rxm_rx_buf *rx_buf)
 			}
 			return peer_srx->owner_ops->queue_tag(rx_entry);
 		}
+		rx_entry->peer_context = NULL;
 		break;
 	default:
 		FI_WARN(&rxm_prov, FI_LOG_CQ, "Unknown op!\n");
