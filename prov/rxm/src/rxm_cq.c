@@ -417,15 +417,15 @@ void rxm_process_seg_data(struct rxm_rx_buf *rx_buf)
 
 	if ((rxm_sar_get_seg_type(&rx_buf->pkt.ctrl_hdr) == RXM_SAR_SEG_LAST) ||
 	    (done_len != rx_buf->pkt.ctrl_hdr.seg_size)) {
+		if (!rx_buf->peer_entry->peer_context)
 		dlist_remove(&proto_info->sar.entry);
 
 		done_len = proto_info->sar.total_recv_len;
 
+		// proto_info->sar.msg_id = RXM_SAR_RX_INIT;
+		// proto_info->sar.total_recv_len = 0;
 		rxm_finish_recv(rx_buf, done_len);
 	} else {
-		if (proto_info->sar.msg_id == RXM_SAR_RX_INIT)
-			rxm_init_sar_proto(rx_buf, proto_info);
-
 		/* The RX buffer can be reposted for further re-use */
 		rx_buf->peer_entry = NULL;
 		rxm_free_rx_buf(rx_buf);
@@ -448,6 +448,9 @@ static void rxm_handle_seg_data(struct rxm_rx_buf *rx_buf)
 
 	proto_info = util_get_msg_data(rx_buf->peer_entry);
 	dlist_insert_tail(&rx_buf->unexp_entry, &proto_info->sar.pkt_list);
+
+	if ((rxm_sar_get_seg_type(&rx_buf->pkt.ctrl_hdr) == RXM_SAR_SEG_LAST))
+		dlist_remove(&proto_info->sar.entry);
 
 	//only do this for expected packets (if in unexpected, no target iov)
 
@@ -489,6 +492,7 @@ ssize_t rxm_handle_unexp_sar(struct fi_peer_rx_entry *peer_entry)
 				struct rxm_rx_buf, rx_buf, unexp_entry);
 		rxm_process_seg_data(rx_buf);
 	}
+	peer_entry->peer_context = NULL;
 	return FI_SUCCESS;
 }
 
@@ -780,6 +784,8 @@ static ssize_t rxm_handle_recv_comp(struct rxm_rx_buf *rx_buf)
 	rx_buf->peer_entry = rx_entry;
 	rx_buf->peer_entry->size = rx_buf->pkt.hdr.size;
 
+	if (rx_buf->pkt.ctrl_hdr.type == rxm_ctrl_seg)
+		rxm_init_sar_proto(rx_buf, util_get_msg_data(rx_entry));
 	return rxm_handle_rx_buf(rx_buf);
 }
 

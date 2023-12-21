@@ -1241,8 +1241,8 @@ static int rxm_discard(struct fi_peer_rx_entry *rx_entry)
 {
 	//cleanup resources
 	return FI_SUCCESS;
-}
 
+}
 struct fi_ops_srx_peer rxm_srx_peer_ops = {
 	.size = sizeof(struct fi_ops_srx_peer),
 	.start_msg = rxm_unexp_start,
