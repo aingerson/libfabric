@@ -109,20 +109,16 @@ rxm_trecvmsg(struct fid_ep *ep_fid, const struct fi_msg_tagged *msg,
 	//struct rxm_recv_entry *recv_entry;
 	//struct fi_recv_context *recv_ctx;
 	//struct rxm_rx_buf *rx_buf;
-	ssize_t ret = 0;
+	//ssize_t ret = 0;
 
 	rxm_ep = container_of(ep_fid, struct rxm_ep, util_ep.ep_fid.fid);
 	flags |= rxm_ep->util_ep.rx_msg_flags;
 
-	if (!(flags & (FI_CLAIM | FI_PEEK)) &&
-	    !(rxm_ep->rxm_info->mode & FI_BUFFERED_RECV)) {
-		return util_srx_generic_trecv(rxm_ep->srx, msg->msg_iov,
+	return util_srx_generic_trecv(rxm_ep->srx, msg->msg_iov,
 					msg->desc,  msg->iov_count, msg->addr,
 					msg->context, msg->tag, msg->ignore,
 					flags);
-	}
 
-	return ret;
 /* TODO add claim/peek/discard
 	ofi_ep_lock_acquire(&rxm_ep->util_ep);
 	if (rxm_ep->rxm_info->mode & FI_BUFFERED_RECV) {
