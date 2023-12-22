@@ -915,6 +915,7 @@ static inline void
 rxm_cq_write_recv_comp(struct rxm_rx_buf *rx_buf, void *context, uint64_t flags,
 		       size_t len, char *buf)
 {
+	flags &= ~FI_COMPLETION;
 	if (rx_buf->ep->util_coll_peer_xfer_ops &&
 	    rx_buf->pkt.hdr.tag & RXM_PEER_XFER_TAG_FLAG) {
 		struct fi_cq_tagged_entry cqe = {
