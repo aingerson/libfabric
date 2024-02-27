@@ -312,12 +312,8 @@ void smr_ep_progress(struct util_ep *util_ep);
 static inline bool smr_vma_enabled(struct smr_ep *ep,
 				   struct smr_region *peer_smr)
 {
-	if (ep->region == peer_smr)
-		return (ep->region->cma_cap_self == SMR_VMA_CAP_ON ||
-			ep->region->xpmem_cap_self == SMR_VMA_CAP_ON);
-	else
-		return (ep->region->cma_cap_peer == SMR_VMA_CAP_ON ||
-			peer_smr->xpmem_cap_self == SMR_VMA_CAP_ON);
+	return ep->region == peer_smr ? ep->region->self_vma_caps :
+					ep->region->peer_vma_caps;
 }
 
 static inline bool smr_ze_ipc_enabled(struct smr_region *smr,

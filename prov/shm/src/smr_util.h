@@ -56,10 +56,11 @@ extern "C" {
 
 #define SMR_VERSION	6
 
-#define SMR_FLAG_ATOMIC	(1 << 0)
-#define SMR_FLAG_DEBUG	(1 << 1)
-#define SMR_FLAG_IPC_SOCK (1 << 2)
-#define SMR_FLAG_HMEM_ENABLED (1 << 3)
+#define SMR_FLAG_ATOMIC		(1 << 0)
+#define SMR_FLAG_DEBUG		(1 << 1)
+#define SMR_FLAG_IPC_SOCK	(1 << 2)
+#define SMR_FLAG_HMEM_ENABLED	(1 << 3)
+#define SMR_FLAG_CMA_INIT	(1 << 4)
 
 #define SMR_CMD_SIZE		256	/* align with 64-byte cache line */
 
@@ -83,14 +84,6 @@ enum {
 #define SMR_TX_COMPLETION	(1 << 2)
 #define SMR_RX_COMPLETION	(1 << 3)
 #define SMR_MULTI_RECV		(1 << 4)
-
-/* CMA/XPMEM capability. Generic acronym used:
- * VMA: Virtual Memory Address */
-enum {
-	SMR_VMA_CAP_NA,
-	SMR_VMA_CAP_ON,
-	SMR_VMA_CAP_OFF,
-};
 
 /*
  * Unique smr_op_hdr for smr message protocol:
@@ -222,13 +215,14 @@ struct smr_region {
 	uint8_t		version;
 	uint8_t		resv;
 	uint16_t	flags;
-	int		pid;
-	uint8_t		cma_cap_peer;
-	uint8_t		cma_cap_self;
-	uint32_t	max_sar_buf_per_peer;
-	uint8_t		xpmem_cap_self;
+	uint8_t		self_vma_caps;
+	uint8_t		peer_vma_caps;
+	uint16_t	max_sar_buf_per_peer;
+
 	struct xpmem_pinfo xpmem_self;
 	struct xpmem_pinfo xpmem_peer;
+
+	int		pid;
 	void		*base_addr;
 	pthread_spinlock_t	lock; /* lock for shm access
 				 if both ep->tx_lock and this lock need to
@@ -248,6 +242,17 @@ struct smr_region {
 	size_t		name_offset;
 	size_t		sock_name_offset;
 };
+
+static inline void smr_set_vma_cap(uint8_t *vma_cap, uint8_t type, bool avail)
+{
+	(*vma_cap) &= ~(1 << type);
+	(*vma_cap) |= (uint8_t) avail << type;
+}
+
+static inline uint8_t smr_get_vma_cap(uint8_t vma_cap, uint8_t type)
+{
+	return vma_cap & (1 << type);
+}
 
 struct smr_resp {
 	uint64_t	msg_id;
