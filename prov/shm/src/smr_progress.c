@@ -811,13 +811,36 @@ static int smr_start_common(struct smr_ep *ep, struct smr_cmd *cmd,
 	return 0;
 }
 
+static int smr_complete_unexp(struct smr_cmd_ctx *cmd_ctx, size_t bytes,
+			      struct fi_peer_rx_entry *rx_entry)
+{
+	uint64_t comp_flags;
+	int ret;
+
+	comp_flags = smr_rx_cq_flags(cmd_ctx->cmd.msg.hdr.op,
+			rx_entry->flags, cmd_ctx->cmd.msg.hdr.op_flags);
+
+	ret = smr_complete_rx(cmd_ctx->ep, rx_entry->context,
+			      cmd_ctx->cmd.msg.hdr.op, comp_flags,
+			      bytes, rx_entry->iov[0].iov_base,
+			      cmd_ctx->cmd.msg.hdr.id,
+			      cmd_ctx->cmd.msg.hdr.tag,
+			      cmd_ctx->cmd.msg.hdr.data);
+	if (ret) {
+		FI_WARN(&smr_prov, FI_LOG_EP_CTRL,
+			"unable to process rx completion\n");
+	}
+
+	smr_get_peer_srx(cmd_ctx->ep)->owner_ops->free_entry(rx_entry);
+
+	return ret;
+}
+
 static int smr_copy_saved(struct smr_cmd_ctx *cmd_ctx,
 		struct fi_peer_rx_entry *rx_entry)
 {
 	struct smr_unexp_buf *sar_buf;
 	size_t bytes = 0;
-	uint64_t comp_flags;
-	int ret;
 
 	while (!slist_empty(&cmd_ctx->buf_list)) {
 		slist_remove_head_container(&cmd_ctx->buf_list,
@@ -846,23 +869,7 @@ static int smr_copy_saved(struct smr_cmd_ctx *cmd_ctx,
 	}
 	assert(!cmd_ctx->sar_entry);
 
-	comp_flags = smr_rx_cq_flags(cmd_ctx->cmd.msg.hdr.op,
-			rx_entry->flags, cmd_ctx->cmd.msg.hdr.op_flags);
-
-	ret = smr_complete_rx(cmd_ctx->ep, rx_entry->context,
-			      cmd_ctx->cmd.msg.hdr.op, comp_flags,
-			      bytes, rx_entry->iov[0].iov_base,
-			      cmd_ctx->cmd.msg.hdr.id,
-			      cmd_ctx->cmd.msg.hdr.tag,
-			      cmd_ctx->cmd.msg.hdr.data);
-	if (ret) {
-		FI_WARN(&smr_prov, FI_LOG_EP_CTRL,
-			"unable to process rx completion\n");
-		return ret;
-	}
-	smr_get_peer_srx(cmd_ctx->ep)->owner_ops->free_entry(rx_entry);
-
-	return FI_SUCCESS;
+	return smr_complete_unexp(cmd_ctx, bytes, rx_entry);
 }
 
 int smr_unexp_start(struct fi_peer_rx_entry *rx_entry)
@@ -870,12 +877,20 @@ int smr_unexp_start(struct fi_peer_rx_entry *rx_entry)
 	struct smr_cmd_ctx *cmd_ctx = rx_entry->peer_context;
 	int ret;
 
-	if (cmd_ctx->cmd.msg.hdr.op_src == smr_src_sar ||
-	    cmd_ctx->cmd.msg.hdr.op_src == smr_src_inject)
+	switch (cmd_ctx->cmd.msg.hdr.op_src) {
+	case smr_src_sar:
+	case smr_src_inject:
 		ret = smr_copy_saved(cmd_ctx, rx_entry);
-	else
+		break;
+	case smr_src_iov:
+		ofi_copy_to_iov(rx_entry->iov, rx_entry->count, 0, cmd_ctx->buf,
+				cmd_ctx->copy_len);
+		ret = smr_complete_unexp(cmd_ctx, cmd_ctx->copy_len, rx_entry);
+		free(cmd_ctx->buf);
+		break;
+	default:
 		ret = smr_start_common(cmd_ctx->ep, &cmd_ctx->cmd, rx_entry);
-
+	}
 	ofi_buf_free(cmd_ctx);
 
 	return ret;
@@ -922,6 +937,7 @@ static int smr_alloc_cmd_ctx(struct smr_ep *ep,
 	struct smr_cmd_ctx *cmd_ctx;
 	struct smr_pend_entry *sar_entry;
 	struct smr_inject_buf *tx_buf;
+	struct iovec iov;
 	struct smr_unexp_buf *buf;
 
 	cmd_ctx = ofi_buf_alloc(ep->cmd_ctx_pool);
@@ -938,9 +954,11 @@ static int smr_alloc_cmd_ctx(struct smr_ep *ep,
 		rx_entry->cq_data = cmd->msg.hdr.data;
 	}
 
-	if (cmd->msg.hdr.op_src == smr_src_inline) {
+	switch (cmd->msg.hdr.op_src) {
+	case smr_src_inline:
 		memcpy(&cmd_ctx->cmd, cmd, sizeof(cmd->msg.hdr) + cmd->msg.hdr.size);
-	} else if (cmd->msg.hdr.op_src == smr_src_inject) {
+		break;
+	case smr_src_inject:
 		memcpy(&cmd_ctx->cmd, cmd, sizeof(cmd->msg.hdr));
 		buf = ofi_buf_alloc(ep->unexp_buf_pool);
 		if (!buf) {
@@ -955,7 +973,8 @@ static int smr_alloc_cmd_ctx(struct smr_ep *ep,
 		tx_buf = smr_get_ptr(ep->region, (size_t) cmd->msg.hdr.src_data);
 		memcpy(buf->buf, tx_buf->buf, cmd->msg.hdr.size);
 		smr_release_txbuf(ep->region, tx_buf);
-	} else if (cmd->msg.hdr.op_src == smr_src_sar) {
+		break;
+	case smr_src_sar:
 		memcpy(&cmd_ctx->cmd, cmd, sizeof(*cmd));
 		slist_init(&cmd_ctx->buf_list);
 
@@ -977,7 +996,23 @@ static int smr_alloc_cmd_ctx(struct smr_ep *ep,
 
 			cmd_ctx->sar_entry = sar_entry;
 		}
-	} else {
+		break;
+	case smr_src_iov:
+		slist_init(&cmd_ctx->buf_list);
+		cmd_ctx->buf = calloc(1, cmd->msg.hdr.size);
+		if (!cmd_ctx->buf) {
+			FI_WARN(&smr_prov, FI_LOG_EP_CTRL,
+				"Error allocating unexpec buffer\n");
+			ofi_buf_free(cmd_ctx);
+			return -FI_ENOMEM;
+		}
+		iov.iov_base = cmd_ctx->buf;
+		iov.iov_len = cmd->msg.hdr.size;
+		cmd_ctx->copy_len = 0;
+		cmd_ctx->err = smr_progress_iov(cmd, &iov, 1,
+						&cmd_ctx->copy_len, ep, 0);
+		break;
+	default:
 		memcpy(&cmd_ctx->cmd, cmd, sizeof(*cmd));
 	}
 

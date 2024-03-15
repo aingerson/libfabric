@@ -146,6 +146,9 @@ struct smr_cmd_ctx {
 	struct smr_cmd cmd;
 	struct smr_pend_entry *sar_entry;
 	struct slist buf_list;
+	void *buf;
+	size_t copy_len;
+	int err;
 };
 
 OFI_DECLARE_FREESTACK(struct smr_tx_entry, smr_tx_fs);
