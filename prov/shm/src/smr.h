@@ -137,7 +137,7 @@ struct smr_tx_entry {
 	int64_t		peer_id;
 	void		*context;
 	struct iovec	iov[SMR_IOV_LIMIT];
-	uint32_t	iov_count;
+	size_t		iov_count;
 	uint64_t	op_flags;
 	size_t		bytes_done;
 	void		*map_ptr;
@@ -292,6 +292,16 @@ void smr_format_pend(struct smr_ep *ep, struct smr_tx_entry *pend,
 void smr_generic_format(struct smr_cmd *cmd, int64_t peer_id, uint32_t op,
 			uint64_t tag, uint64_t data, uint64_t op_flags,
 			uintptr_t rma_cmd);
+void smr_format_iov(struct smr_cmd *cmd, const struct iovec *iov,
+		    size_t count, size_t total_len);
+int smr_format_ze_ipc(struct smr_ep *ep, int64_t id, struct smr_cmd *cmd,
+		const struct iovec *iov, size_t iov_count, uint64_t device,
+		size_t total_len, struct smr_region *smr);
+void smr_format_iov(struct smr_cmd *cmd, const struct iovec *iov,
+		    size_t count, size_t total_len);
+int smr_format_ipc(struct smr_cmd *cmd, const struct iovec *iov,
+		size_t iov_count, size_t len, struct smr_region *smr,
+		enum fi_hmem_iface iface, uint64_t device);
 size_t smr_copy_to_sar(struct smr_region *smr, struct smr_cmd *cmd,
 		         struct ofi_mr **mr, const struct iovec *iov,
 		         size_t count, size_t *bytes_done);

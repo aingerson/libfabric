@@ -282,6 +282,18 @@ bool ofi_hmem_any_ipc_enabled(void)
 	return false;
 }
 
+bool ofi_hmem_any_ipc_disabled(void)
+{
+	int iface;
+
+	//Skip hmem system which will never have ipc enabled
+	for (iface = FI_HMEM_SYSTEM + 1; iface < ARRAY_SIZE(hmem_ops); iface++)
+		if (ofi_hmem_is_initialized(iface) &&
+		    !ofi_hmem_is_ipc_enabled(iface))
+			return true;
+	return false;
+}
+
 int ofi_create_async_copy_event(enum fi_hmem_iface iface, uint64_t device,
 				ofi_hmem_async_event_t *event)
 {
