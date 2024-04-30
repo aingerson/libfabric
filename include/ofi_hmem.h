@@ -430,6 +430,7 @@ int ofi_hmem_host_unregister(void *addr);
 bool ofi_hmem_is_ipc_enabled(enum fi_hmem_iface iface);
 size_t ofi_hmem_get_ipc_handle_size(enum fi_hmem_iface iface);
 bool ofi_hmem_any_ipc_enabled(void);
+bool ofi_hmem_any_ipc_disabled(void);
 int ofi_hmem_dev_register(enum fi_hmem_iface iface, const void *addr,
 			  size_t size, uint64_t *handle);
 int ofi_hmem_dev_unregister(enum fi_hmem_iface iface, uint64_t handle);
