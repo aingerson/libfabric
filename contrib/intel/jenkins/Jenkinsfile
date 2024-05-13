@@ -16,7 +16,6 @@ def run_python(version, command, output=null) {
 }
 
 def slurm_batch(partition, node_num, output, command) {
-  
   try {
     sh """sbatch --partition=${partition} -N ${node_num} \
           --wait -o ${output} --open-mode=append \
@@ -349,6 +348,7 @@ pipeline {
       RUN_LOCATION="${env.CUSTOM_WORKSPACE}/ci_resources/legacy_pipeline_scripts/"
       CI_LOCATION="${env.CUSTOM_WORKSPACE}/ci"
       LOG_DIR = "${env.CUSTOM_WORKSPACE}/log_dir"
+      WEEKLY = 0
   }
   stages {
     stage ('checkout') {
@@ -381,35 +381,10 @@ pipeline {
         }
       }
     }
-    stage ('opt-out') {
-      steps {
-        script {
-          TARGET=check_target()
-          dir ("${CUSTOM_WORKSPACE}/source/libfabric") {
-            generate_diff("${TARGET}", "${env.WORKSPACE}/source/libfabric")
-            generate_release_num("${TARGET}", "${env.WORKSPACE}/source/libfabric")
-          }
-
-          if (env.WEEKLY == null) {
-            weekly = false
-          } else {
-            weekly = env.WEEKLY.toBoolean()
-          }
-          if (weekly) {
-            TIMEOUT="21600" 
-          } 
-          skip = skip()
-          RELEASE = release()
-          if (skip && !weekly) {
-            DO_RUN=false
-          }
-        }
-      }
-    }
     stage ('prepare build') {
       when { equals expected: true, actual: DO_RUN }
       steps {
-        script {  
+        script {
           echo "Copying build dirs."
           build("builddir")
           echo "Copying log dirs."
@@ -521,27 +496,6 @@ pipeline {
             }
           }
         }
-        stage ('build-gpu') {
-          agent {
-            node {
-              label 'ze'
-              customWorkspace CUSTOM_WORKSPACE
-            }
-          }
-          options { skipDefaultCheckout() }
-          steps {
-            script {
-              dir ("${CUSTOM_WORKSPACE}/source/libfabric") { checkout scm }
-              checkout_external_resources()
-              dir (CUSTOM_WORKSPACE) {
-                build("logdir")
-                build("builddir")
-                build("libfabric", "reg", "gpu", "--gpu")
-                build("fabtests", "reg", "gpu")
-              }
-            }
-          }
-        }
       }
     }
     stage('parallel-tests') {
@@ -628,73 +582,11 @@ pipeline {
             }
           }
         }
-        stage('verbs-rxd') {
-          steps {
-            script {
-              dir (RUN_LOCATION) {
-                run_fabtests("verbs-rxd", "water", "squirtle", "2", "verbs",
-                             "rxd")
-                run_fabtests("verbs-rxd", "water", "squirtle", "2", "verbs",
-                             "rxd", "FI_MR_CACHE_MAX_COUNT=0")
-                run_fabtests("verbs-rxd", "water", "squirtle", "2", "verbs",
-                             "rxd", "FI_MR_CACHE_MONITOR=userfaultfd")
-              }
-            }
-          }
-        }
-        stage('udp') {
-          steps {
-            script {
-              dir (RUN_LOCATION) {
-                run_fabtests("udp", "grass", "bulbasaur", "2", "udp")
-              }
-            }
-          }
-        }
-        stage('shm') {
-          steps {
-            script {
-              dir (RUN_LOCATION) {
-                run_fabtests("shm", "grass", "bulbasaur", "1", "shm")
-                run_fabtests("shm", "grass", "bulbasaur", "1", "shm", null,
-                            "FI_SHM_DISABLE_CMA=1")
-              }
-            }
-          }
-        }
-        stage('sockets') {
-          steps {
-            script {
-              dir (RUN_LOCATION) {
-                run_fabtests("sockets", "grass", "bulbasaur", "2", "sockets")
-              }
-            }
-          }
-        }
-        stage('ucx') {
-          steps {
-            script {
-              dir (RUN_LOCATION) {
-                run_fabtests("ucx", "ucx", "totodile", "2", "ucx")
-              }
-            }
-          }
-        }
-        stage('psm3') {
-          steps {
-            script {
-              dir (RUN_LOCATION) {
-                run_fabtests("psm3", "water", "squirtle", "2", "psm3", null,
-                             "PSM3_IDENTIFY=1")
-              }
-            }
-          }
-        }
         stage('mpichtestsuite') {
           steps {
             script {
               dir (RUN_LOCATION) {
-                def providers = [['tcp', null], ["verbs","rxm"]]
+                def providers = [["verbs","rxm"]]
                 def MPIS = ["mpich"]
                 if (env.WEEKLY.toBoolean()) {
                   MPIS = ["impi", "mpich"]
@@ -727,12 +619,27 @@ pipeline {
             }
           }
         }
-        stage ('multinode_performance') {
+      }
+    }
+
+    stage('parallel-tests-peer') {
+      environment {
+          FI_OFI_RXM_ENABLE_SHM=1
+      }
+      when { equals expected: true, actual: DO_RUN }
+      parallel {
+        stage('MPI_verbs-rxm_IMB-peer') {
           steps {
             script {
               dir (RUN_LOCATION) {
-                run_middleware([["tcp", null]], "multinode_performance",
-                               "multinode", "grass", "bulbasaur", "2")
+                def providers = [["verbs", "rxm"]]
+                for (def mpi in ["impi"]) {
+                  for (imb_grp = 1; imb_grp < 4; imb_grp++) {
+                    run_middleware(providers, "MPI", "IMB", "water",
+                                   "squirtle,totodile", "2", "${mpi}",
+                                   "${imb_grp}")
+                  }
+                }
               }
             }
           }
@@ -757,9 +664,7 @@ pipeline {
             }
           }
         }
-        stage ('oneCCL-GPU-v3') {
-          agent { node { label 'ze' } }
-          options { skipDefaultCheckout() }
+        stage('verbs-rxm-peer') {
           steps {
             script {
               dir (RUN_LOCATION) {
@@ -776,21 +681,24 @@ pipeline {
             }
           }
         }
-        stage('daos_tcp') {
-          agent { node { label 'daos_tcp' } }
-          options { skipDefaultCheckout() }
+        stage('mpichtestsuite-peer') {
           steps {
             script {
               dir (RUN_LOCATION) {
-                run_python(PYTHON_VERSION,
-                           """runtests.py --prov='tcp' --util='rxm' \
-                           --test=daos --build_hw=daos \
-                           --log_file=${env.LOG_DIR}/daos_tcp-rxm_reg""")
+                def providers = [["verbs","rxm"]]
+                def MPIS = ["mpich"]
+                if (env.WEEKLY.toBoolean()) {
+                  MPIS = ["impi", "mpich"]
+                }
+                for (def mpi in MPIS) {
+                  run_middleware(providers, "mpichtestsuite", "mpichtestsuite",
+                                 "water", "squirtle,totodile", "2", "${mpi}")
+                }
               }
             }
           }
         }
-         stage('daos_verbs') {
+         stage('daos_verbs-peer') {
           agent { node { label 'daos_verbs' } }
           options { skipDefaultCheckout() }
           steps {

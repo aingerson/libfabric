@@ -217,7 +217,7 @@ static struct fi_info rxm_coll_info = {
 };
 
 static struct fi_info rxm_base_info = {
-	.caps = RXM_TX_CAPS | RXM_RX_CAPS | RXM_DOMAIN_CAPS | FI_HMEM,
+	.caps = RXM_TX_CAPS | RXM_RX_CAPS | RXM_DOMAIN_CAPS | FI_HMEM | FI_PEER,
 	.addr_format = FI_SOCKADDR,
 	.tx_attr = &rxm_tx_attr,
 	.rx_attr = &rxm_rx_attr,
@@ -228,7 +228,7 @@ static struct fi_info rxm_base_info = {
 };
 
 static struct fi_info rxm_tcp_info = {
-	.caps = RXM_TX_CAPS | RXM_RX_CAPS | RXM_DOMAIN_CAPS,
+	.caps = RXM_TX_CAPS | RXM_RX_CAPS | RXM_DOMAIN_CAPS | FI_PEER,
 	.addr_format = FI_SOCKADDR,
 	.tx_attr = &rxm_tx_attr,
 	.rx_attr = &rxm_rx_attr,
@@ -250,7 +250,7 @@ struct fi_info rxm_thru_info = {
 };
 
 static struct fi_info rxm_verbs_info = {
-	.caps = RXM_TX_CAPS | RXM_RX_CAPS | RXM_DOMAIN_CAPS | FI_HMEM,
+	.caps = RXM_TX_CAPS | RXM_RX_CAPS | RXM_DOMAIN_CAPS | FI_HMEM | FI_PEER,
 	.addr_format = FI_SOCKADDR,
 	.tx_attr = &rxm_tx_attr,
 	.rx_attr = &rxm_rx_attr,
