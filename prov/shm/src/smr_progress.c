@@ -411,9 +411,9 @@ static int smr_progress_mmap(struct smr_cmd *cmd, struct ofi_mr **mr,
 	ret = smr_mmap_peer_copy(ep, cmd, mr, iov, iov_count, total_len);
 
 	//Status must be set last (signals peer: op done, valid resp entry)
-	resp->status = ret;
+	resp->status = -ret;
 
-	return ret;
+	return -ret;
 }
 
 static struct smr_pend_entry *smr_progress_sar(struct smr_cmd *cmd,
@@ -578,7 +578,7 @@ static struct smr_pend_entry *smr_progress_ipc(struct smr_cmd *cmd,
 					 iov_count, mr_entry, cmd,
 					 &ipc_entry);
 		if (ret)
-			resp->status = ret;
+			resp->status = -ret;
 
 		return ipc_entry;
 	}
@@ -613,7 +613,7 @@ static struct smr_pend_entry *smr_progress_ipc(struct smr_cmd *cmd,
 
 out:
 	//Status must be set last (signals peer: op done, valid resp entry)
-	resp->status = ret;
+	resp->status = -ret;
 
 	return NULL;
 }
