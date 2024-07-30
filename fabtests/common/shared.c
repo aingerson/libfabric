@@ -1046,6 +1046,7 @@ int ft_getinfo(struct fi_info *hints, struct fi_info **info)
 		hints->domain_attr->mr_mode |= FI_MR_HMEM;
 	}
 
+	hints->domain_attr->threading = opts.threading;
 	printf("domain threading is %d\n", hints->domain_attr->threading);
 
 	ret = fi_getinfo(FT_FIVERSION, node, service, flags, hints, info);
@@ -4236,6 +4237,8 @@ void ft_longopts_usage()
 		"maximum untagged message size");
 	FT_PRINT_OPTS_USAGE("--use-fi-more",
 		"Run tests with FI_MORE");
+	FT_PRINT_OPTS_USAGE("--threading",
+		"threading model: safe|completion|domain (default:domain)");
 }
 
 int debug_assert;
@@ -4249,6 +4252,7 @@ struct option long_opts[] = {
 	{"control-progress", required_argument, NULL, LONG_OPT_CONTROL_PROGRESS},
 	{"max-msg-size", required_argument, NULL, LONG_OPT_MAX_MSG_SIZE},
 	{"use-fi-more", no_argument, NULL, LONG_OPT_USE_FI_MORE},
+	{"threading", required_argument, NULL, LONG_OPT_THREADING},
 	{NULL, 0, NULL, 0},
 };
 
@@ -4262,6 +4266,20 @@ int ft_parse_progress_model_string(char* progress_str)
 		ret = FI_PROGRESS_AUTO;
 	else if (!strcasecmp("unified", progress_str))
 		ret = FI_PROGRESS_CONTROL_UNIFIED;
+
+	return ret;
+}
+
+static int ft_parse_threading_string(char* threading_str)
+{
+	int ret = -1;
+
+	if (!strcasecmp("safe", threading_str))
+		ret = FI_THREAD_SAFE;
+	else if (!strcasecmp("completion", threading_str))
+		ret = FI_THREAD_COMPLETION;
+	else if (!strcasecmp("domain", threading_str))
+		ret = FI_THREAD_DOMAIN;
 
 	return ret;
 }
@@ -4291,6 +4309,9 @@ int ft_parse_long_opts(int op, char *optarg)
 		return 0;
 	case LONG_OPT_USE_FI_MORE:
 		opts.use_fi_more = 1;
+		return 0;
+	case LONG_OPT_THREADING:
+		opts.threading = ft_parse_threading_string(optarg);
 		return 0;
 	default:
 		return EXIT_FAILURE;
