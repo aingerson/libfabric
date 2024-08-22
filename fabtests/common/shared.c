@@ -1046,6 +1046,8 @@ int ft_getinfo(struct fi_info *hints, struct fi_info **info)
 		hints->domain_attr->mr_mode |= FI_MR_HMEM;
 	}
 
+	printf("domain threading is %d\n", hints->domain_attr->threading);
+
 	ret = fi_getinfo(FT_FIVERSION, node, service, flags, hints, info);
 	if (ret) {
 		FT_PRINTERR("fi_getinfo", ret);
