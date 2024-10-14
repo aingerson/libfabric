@@ -49,11 +49,11 @@ extern "C" {
 void smr_dsa_init(void);
 void smr_dsa_cleanup(void);
 size_t smr_dsa_copy_to_sar(struct smr_ep *ep, struct smr_freestack *sar_pool,
-		struct smr_resp *resp, struct smr_cmd *cmd,
+		struct smr_cmd *cmd,
 		const struct iovec *iov, size_t count, size_t *bytes_done,
 		void *entry_ptr);
 size_t smr_dsa_copy_from_sar(struct smr_ep *ep, struct smr_freestack *sar_pool,
-		struct smr_resp *resp, struct smr_cmd *cmd,
+		struct smr_cmd *cmd,
 		const struct iovec *iov, size_t count, size_t *bytes_done,
 		void *entry_ptr);
 void smr_dsa_context_init(struct smr_ep *ep);

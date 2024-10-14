@@ -73,6 +73,7 @@ static void smr_do_atomic_inline(struct smr_ep *ep, struct smr_region *peer_smr,
 	smr_format_inline_atomic(cmd, desc, iov, iov_count);
 }
 
+/*
 static void smr_format_inject_atomic(struct smr_cmd *cmd, struct ofi_mr **desc,
 			const struct iovec *iov, size_t count,
 			const struct iovec *resultv, size_t result_count,
@@ -114,6 +115,7 @@ static void smr_format_inject_atomic(struct smr_cmd *cmd, struct ofi_mr **desc,
 		break;
 	}
 }
+*/
 
 static ssize_t smr_do_atomic_inject(struct smr_ep *ep, struct smr_region *peer_smr,
 			int64_t id, int64_t peer_id, uint32_t op,
@@ -125,34 +127,34 @@ static ssize_t smr_do_atomic_inject(struct smr_ep *ep, struct smr_region *peer_s
 			size_t comp_count, size_t total_len, void *context,
 			uint16_t smr_flags, struct smr_cmd *cmd)
 {
-	struct smr_inject_buf *tx_buf;
-	struct smr_tx_entry *pend;
-	struct smr_resp *resp;
+	// struct smr_inject_buf *tx_buf;
+	// struct smr_tx_entry *pend;
 
-	tx_buf = smr_get_txbuf(peer_smr);
-	if (!tx_buf)
-		return -FI_EAGAIN;
+	//fix atomic inject
+	// tx_buf = smr_get_txbuf(peer_smr);
+	// if (!tx_buf)
+	// 	return -FI_EAGAIN;
 
-	smr_generic_format(cmd, peer_id, op, 0, 0, op_flags);
-	smr_generic_atomic_format(cmd, datatype, atomic_op);
-	smr_format_inject_atomic(cmd, desc, iov, iov_count, resultv,
-				 result_count, comp_desc, compv, comp_count,
-				 peer_smr, tx_buf);
+	// smr_generic_format(cmd, peer_id, op, 0, 0, op_flags);
+	// smr_generic_atomic_format(cmd, datatype, atomic_op);
+	// smr_format_inject_atomic(cmd, desc, iov, iov_count, resultv,
+	// 			 result_count, comp_desc, compv, comp_count,
+	// 			 peer_smr, tx_buf);
 
-	if (smr_flags & SMR_RMA_REQ || op_flags & FI_DELIVERY_COMPLETE) {
-		if (ofi_cirque_isfull(smr_resp_queue(ep->region))) {
-			smr_release_txbuf(peer_smr, tx_buf);
-			return -FI_EAGAIN;
-		}
-		resp = ofi_cirque_next(smr_resp_queue(ep->region));
-		pend = ofi_freestack_pop(ep->tx_fs);
-		smr_format_pend_resp(pend, cmd, context, res_desc, resultv,
-				     result_count, op_flags, id, resp);
-		cmd->msg.hdr.data = smr_get_offset(ep->region, resp);
-		ofi_cirque_commit(smr_resp_queue(ep->region));
-	}
+	// if (smr_flags & SMR_RMA_REQ || op_flags & FI_DELIVERY_COMPLETE) {
+	// 	if (ofi_cirque_isfull(smr_resp_queue(ep->region))) {
+	// 		smr_release_txbuf(peer_smr, tx_buf);
+	// 		return -FI_EAGAIN;
+	// 	}
+	// 	resp = ofi_cirque_next(smr_resp_queue(ep->region));
+	// 	pend = ofi_freestack_pop(ep->tx_fs);
+	// 	smr_format_pend(pend, cmd, context, res_desc, resultv,
+	// 			     result_count, op_flags, id, resp);
+	// 	cmd->msg.hdr.data = smr_get_offset(ep->region, resp);
+	// 	ofi_cirque_commit(smr_resp_queue(ep->region));
+	// }
 
-	cmd->msg.hdr.op_flags |= smr_flags;
+	// cmd->msg.hdr.op_flags |= smr_flags;
 
 	return FI_SUCCESS;
 }

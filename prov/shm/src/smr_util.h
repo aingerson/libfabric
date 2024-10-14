@@ -102,7 +102,7 @@ enum {
  * 	data - remote CQ data
  */
 struct smr_msg_hdr {
-	uint64_t		msg_id;
+	uint64_t		tx_ctx;
 	int64_t			id;
 	uint32_t		op;
 	uint16_t		op_src;
@@ -110,6 +110,7 @@ struct smr_msg_hdr {
 
 	uint64_t		size;
 	uint64_t		src_data;
+	uint64_t		status;
 	uint64_t		data;
 	union {
 		uint64_t	tag;
@@ -154,6 +155,7 @@ struct smr_cmd_rma {
 };
 
 struct smr_cmd {
+	uintptr_t cmd;
 	union {
 		struct smr_cmd_msg	msg;
 		struct smr_cmd_rma	rma;
@@ -182,6 +184,7 @@ struct smr_peer_data {
 	uint32_t		sar_status;
 	uint16_t		name_sent;
 	uint16_t		ipc_valid;
+	uintptr_t		local_region;
 	struct ofi_xpmem_client xpmem;
 };
 
@@ -248,17 +251,13 @@ struct smr_region {
 
 	/* offsets from start of smr_region */
 	size_t		cmd_queue_offset;
-	size_t		resp_queue_offset;
+	size_t		cmd_stack_offset;
 	size_t		inject_pool_offset;
+	size_t		ret_queue_offset;
 	size_t		sar_pool_offset;
 	size_t		peer_data_offset;
 	size_t		name_offset;
 	size_t		sock_name_offset;
-};
-
-struct smr_resp {
-	uint64_t	msg_id;
-	uint64_t	status;
 };
 
 struct smr_inject_buf {
@@ -297,8 +296,8 @@ struct smr_cmd_entry {
 /* Queue of offsets of the command blocks obtained from the command pool
  * freestack
  */
-OFI_DECLARE_CIRQUE(struct smr_resp, smr_resp_queue);
 OFI_DECLARE_ATOMIC_Q(struct smr_cmd_entry, smr_cmd_queue);
+OFI_DECLARE_ATOMIC_Q(uintptr_t, smr_return_queue);
 
 static inline struct smr_region *smr_peer_region(struct smr_region *smr, int i)
 {
@@ -308,13 +307,17 @@ static inline struct smr_cmd_queue *smr_cmd_queue(struct smr_region *smr)
 {
 	return (struct smr_cmd_queue *) ((char *) smr + smr->cmd_queue_offset);
 }
-static inline struct smr_resp_queue *smr_resp_queue(struct smr_region *smr)
+static inline struct smr_freestack *smr_cmd_stack(struct smr_region *smr)
 {
-	return (struct smr_resp_queue *) ((char *) smr + smr->resp_queue_offset);
+	return (struct smr_freestack *) ((char *) smr + smr->cmd_stack_offset);
 }
 static inline struct smr_freestack *smr_inject_pool(struct smr_region *smr)
 {
 	return (struct smr_freestack *) ((char *) smr + smr->inject_pool_offset);
+}
+static inline struct smr_return_queue *smr_return_queue(struct smr_region *smr)
+{
+	return (struct smr_return_queue *) ((char *) smr + smr->ret_queue_offset);
 }
 static inline struct smr_peer_data *smr_peer_data(struct smr_region *smr)
 {
@@ -345,10 +348,10 @@ struct smr_attr {
 	size_t		tx_count;
 	uint16_t	flags;
 };
-
 size_t smr_calculate_size_offsets(size_t tx_count, size_t rx_count,
-				  size_t *cmd_offset, size_t *resp_offset,
-				  size_t *inject_offset, size_t *sar_offset,
+				  size_t *cmd_offset, size_t *cs_offset,
+				  size_t *inject_offset, size_t *rq_offset,
+				  size_t *sar_offset,
 				  size_t *peer_offset, size_t *name_offset,
 				  size_t *sock_offset);
 void	smr_cma_check(struct smr_region *region, struct smr_region *peer_region);
@@ -369,6 +372,45 @@ struct smr_region *smr_map_get(struct smr_map *map, int64_t id);
 int	smr_create(const struct fi_provider *prov, struct smr_map *map,
 		   const struct smr_attr *attr, struct smr_region *volatile *smr);
 void	smr_free(struct smr_region *smr);
+
+//local cmd in peer space
+static inline uintptr_t smr_get_peer_ptr(struct smr_region *my_smr,
+			int64_t id, int64_t peer_id,
+			uintptr_t local_ptr)
+{
+	struct smr_region *peer_smr = smr_peer_region(my_smr, id);
+	uint64_t offset = local_ptr - (uintptr_t) my_smr;
+	return smr_peer_data(peer_smr)[peer_id].local_region + offset;
+}
+
+//peer cmd in peer space
+static inline uintptr_t smr_get_owner_ptr(struct smr_region *my_smr,
+			int64_t id, uintptr_t local_ptr)
+{
+	struct smr_region *peer_smr = smr_peer_region(my_smr, id);
+	uint64_t offset = local_ptr - (uintptr_t) peer_smr;
+	return (uintptr_t) peer_smr->base_addr + offset;
+}
+
+static inline void smr_return_cmd(struct smr_region *my_smr,
+				  struct smr_cmd *cmd)
+{
+	struct smr_region *peer_smr = smr_peer_region(my_smr, cmd->msg.hdr.id);
+	uintptr_t peer_ptr = smr_get_owner_ptr(my_smr, cmd->msg.hdr.id, (uintptr_t) cmd);
+	uintptr_t *ce;
+	int64_t pos;
+	int ret;
+
+	ret = smr_return_queue_next(smr_return_queue(peer_smr), &ce, &pos);
+	if (ret == -FI_ENOENT) {
+		assert(0);
+		//this shouldn't happen (ret queue parallel to fs)
+	}
+
+	*ce = peer_ptr;
+
+	smr_return_queue_commit(ce, pos);
+}
 
 #ifdef __cplusplus
 }

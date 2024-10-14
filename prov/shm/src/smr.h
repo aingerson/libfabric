@@ -258,17 +258,17 @@ int smr_cntr_open(struct fid_domain *domain, struct fi_cntr_attr *attr,
 
 int64_t smr_verify_peer(struct smr_ep *ep, fi_addr_t fi_addr);
 
-void smr_format_pend_resp(struct smr_tx_entry *pend, struct smr_cmd *cmd,
+void smr_format_pend(struct smr_tx_entry *pend, struct smr_cmd *cmd,
 			  void *context, struct ofi_mr **mr,
 			  const struct iovec *iov, uint32_t iov_count,
-			  uint64_t op_flags, int64_t id, struct smr_resp *resp);
+			  uint64_t op_flags, int64_t id);
 void smr_generic_format(struct smr_cmd *cmd, int64_t peer_id, uint32_t op,
 			uint64_t tag, uint64_t data, uint64_t op_flags);
-size_t smr_copy_to_sar(struct smr_freestack *sar_pool, struct smr_resp *resp,
+size_t smr_copy_to_sar(struct smr_ep *ep, struct smr_freestack *sar_pool,
 		       struct smr_cmd *cmd, struct ofi_mr **mr,
 		       const struct iovec *iov, size_t count,
 		       size_t *bytes_done);
-size_t smr_copy_from_sar(struct smr_freestack *sar_pool, struct smr_resp *resp,
+size_t smr_copy_from_sar(struct smr_ep *ep, struct smr_freestack *sar_pool,
 			 struct smr_cmd *cmd, struct ofi_mr **mr,
 			 const struct iovec *iov, size_t count,
 			 size_t *bytes_done);
