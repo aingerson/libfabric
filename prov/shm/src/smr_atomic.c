@@ -48,18 +48,17 @@ static void smr_format_rma_ioc(struct smr_cmd *cmd, const struct fi_rma_ioc *rma
 static void smr_generic_atomic_format(struct smr_cmd *cmd, uint8_t datatype,
 				      uint8_t atomic_op)
 {
-	cmd->msg.hdr.datatype = datatype;
-	cmd->msg.hdr.atomic_op = atomic_op;
+	cmd->hdr.datatype = datatype;
+	cmd->hdr.atomic_op = atomic_op;
 }
 
 static void smr_format_inline_atomic(struct smr_cmd *cmd, struct ofi_mr **mr,
 				     const struct iovec *iov, size_t count)
 {
-	cmd->msg.hdr.op_src = smr_src_inline;
+	cmd->hdr.proto = smr_src_inline;
 
-	cmd->msg.hdr.size = ofi_copy_from_mr_iov(cmd->msg.data.msg,
-						 SMR_MSG_DATA_LEN, mr,
-						 iov, count, 0);
+	cmd->hdr.size = ofi_copy_from_mr_iov(cmd->data.msg, SMR_MSG_DATA_LEN,
+					     mr, iov, count, 0);
 }
 
 static void smr_do_atomic_inline(struct smr_ep *ep, struct smr_region *peer_smr,
@@ -268,7 +267,7 @@ static ssize_t smr_generic_atomic(struct smr_ep *ep,
 		}
 	}
 
-	smr_format_rma_ioc(&ce->rma_cmd, rma_ioc, rma_count);
+	smr_format_rma_ioc(&ce->cmd, rma_ioc, rma_count);
 	smr_cmd_queue_commit(ce, pos);
 unlock:
 	ofi_genlock_unlock(&ep->util_ep.lock);
@@ -388,7 +387,7 @@ static ssize_t smr_atomic_inject(struct fid_ep *ep_fid, const void *buf,
 		}
 	}
 
-	smr_format_rma_ioc(&ce->rma_cmd, &rma_ioc, 1);
+	smr_format_rma_ioc(&ce->cmd, &rma_ioc, 1);
 	smr_cmd_queue_commit(ce, pos);
 	ofi_ep_peer_tx_cntr_inc(&ep->util_ep, ofi_op_atomic);
 out:

@@ -101,7 +101,7 @@ static fi_addr_t smr_get_addr(struct fi_peer_rx_entry *rx_entry)
 {
 	struct smr_cmd_ctx *cmd_ctx = rx_entry->peer_context;
 
-	return cmd_ctx->ep->region->map->peers[cmd_ctx->cmd.msg.hdr.id].fiaddr;
+	return cmd_ctx->ep->region->map->peers[cmd_ctx->cmd.hdr.id].fiaddr;
 }
 
 

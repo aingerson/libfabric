@@ -196,15 +196,15 @@ static void smr_send_name(struct smr_ep *ep, int64_t id)
 		return;
 	}
 
-	ce->cmd.cmd = smr_get_owner_ptr(ep->region, id, (uintptr_t) ce);
-	ce->cmd.msg.hdr.op = SMR_OP_MAX + ofi_ctrl_connreq;
-	ce->cmd.msg.hdr.id = id;
-	ce->cmd.msg.hdr.data = ep->region->pid;
+	ce->ptr = smr_get_owner_ptr(ep->region, id, (uintptr_t) &ce->cmd);
+	ce->cmd.hdr.op = SMR_OP_MAX + ofi_ctrl_connreq;
+	ce->cmd.hdr.id = id;
+	ce->cmd.hdr.cq_data = ep->region->pid;
 
-	ce->cmd.msg.hdr.src_data = smr_get_offset(peer_smr, tx_buf);
+	ce->cmd.hdr.proto_data = smr_get_offset(peer_smr, tx_buf);
 
-	ce->cmd.msg.hdr.size = strlen(ep->name) + 1;
-	memcpy(tx_buf->data, ep->name, ce->cmd.msg.hdr.size);
+	ce->cmd.hdr.size = strlen(ep->name) + 1;
+	memcpy(tx_buf->data, ep->name, ce->cmd.hdr.size);
 
 	smr_peer_data(ep->region)[id].name_sent = 1;
 	smr_cmd_queue_commit(ce, pos);
@@ -241,7 +241,7 @@ void smr_format_pend(struct smr_tx_entry *pend, struct smr_cmd *cmd,
 			  const struct iovec *iov, uint32_t iov_count,
 			  uint64_t op_flags, int64_t id)
 {
-	cmd->msg.hdr.tx_ctx = (uintptr_t) pend;
+	cmd->hdr.tx_ctx = (uintptr_t) pend;
 
 	pend->cmd = *cmd;
 	pend->context = context;
@@ -249,9 +249,8 @@ void smr_format_pend(struct smr_tx_entry *pend, struct smr_cmd *cmd,
 	pend->iov_count = iov_count;
 	pend->peer_id = id;
 	pend->op_flags = op_flags;
-	if (cmd->msg.hdr.op_src != smr_src_sar) {
+	if (cmd->hdr.proto != smr_src_sar)
 		pend->bytes_done = 0;
-	}
 
 	if (mr)
 		memcpy(pend->mr, mr, sizeof(*mr) * iov_count);
@@ -263,44 +262,43 @@ void smr_format_pend(struct smr_tx_entry *pend, struct smr_cmd *cmd,
 void smr_generic_format(struct smr_cmd *cmd, int64_t peer_id, uint32_t op,
 			uint64_t tag, uint64_t data, uint64_t op_flags)
 {
-	cmd->msg.hdr.op = op;
-	cmd->msg.hdr.op_flags = op == ofi_op_read_req ? SMR_RMA_REQ : 0;
-	cmd->msg.hdr.tag = tag;
-	cmd->msg.hdr.id = peer_id;
-	cmd->msg.hdr.data = data;
+	cmd->hdr.op = op;
+	cmd->hdr.op_flags = op == ofi_op_read_req ? SMR_RMA_REQ : 0;
+	cmd->hdr.tag = tag;
+	cmd->hdr.id = peer_id;
+	cmd->hdr.cq_data = data;
 
 	if (op_flags & FI_REMOTE_CQ_DATA)
-		cmd->msg.hdr.op_flags |= SMR_REMOTE_CQ_DATA;
+		cmd->hdr.op_flags |= SMR_REMOTE_CQ_DATA;
 	if (op_flags & FI_COMPLETION)
-		cmd->msg.hdr.op_flags |= SMR_TX_COMPLETION;
+		cmd->hdr.op_flags |= SMR_TX_COMPLETION;
 }
 
 static void smr_format_inline(struct smr_cmd *cmd, struct ofi_mr **mr,
 			      const struct iovec *iov, size_t count)
 {
-	cmd->msg.hdr.op_src = smr_src_inline;
-	cmd->msg.hdr.size = ofi_copy_from_mr_iov(cmd->msg.data.msg,
-						 SMR_MSG_DATA_LEN, mr,
-						 iov, count, 0);
+	cmd->hdr.proto = smr_src_inline;
+	cmd->hdr.size = ofi_copy_from_mr_iov(cmd->data.msg, SMR_MSG_DATA_LEN,
+					     mr, iov, count, 0);
 }
 
 static void smr_format_inject(struct smr_cmd *cmd, struct ofi_mr **mr,
 		const struct iovec *iov, size_t count, struct smr_region *smr,
 		struct smr_inject_buf *tx_buf)
 {
-	cmd->msg.hdr.op_src = smr_src_inject;
-	cmd->msg.hdr.src_data = smr_get_offset(smr, tx_buf);
-	cmd->msg.hdr.size = ofi_copy_from_mr_iov(tx_buf->data, SMR_INJECT_SIZE,
+	cmd->hdr.proto = smr_src_inject;
+	cmd->hdr.proto_data = smr_get_offset(smr, tx_buf);
+	cmd->hdr.size = ofi_copy_from_mr_iov(tx_buf->data, SMR_INJECT_SIZE,
 						 mr, iov, count, 0);
 }
 
 static void smr_format_iov(struct smr_cmd *cmd, const struct iovec *iov,
 		size_t count, size_t total_len, struct smr_region *smr)
 {
-	cmd->msg.hdr.op_src = smr_src_iov;
-	cmd->msg.data.iov_count = count;
-	cmd->msg.hdr.size = total_len;
-	memcpy(cmd->msg.data.iov, iov, sizeof(*iov) * count);
+	cmd->hdr.proto = smr_src_iov;
+	cmd->data.iov_count = count;
+	cmd->hdr.size = total_len;
+	memcpy(cmd->data.iov, iov, sizeof(*iov) * count);
 }
 
 static int smr_format_ipc(struct smr_cmd *cmd, void *ptr, size_t len,
@@ -310,25 +308,25 @@ static int smr_format_ipc(struct smr_cmd *cmd, void *ptr, size_t len,
 	int ret;
 	void *base;
 
-	cmd->msg.hdr.op_src = smr_src_ipc;
-	cmd->msg.hdr.size = len;
-	cmd->msg.data.ipc_info.iface = iface;
-	cmd->msg.data.ipc_info.device = device;
+	cmd->hdr.proto = smr_src_ipc;
+	cmd->hdr.size = len;
+	cmd->data.ipc_info.iface = iface;
+	cmd->data.ipc_info.device = device;
 
-	ret = ofi_hmem_get_base_addr(cmd->msg.data.ipc_info.iface, ptr,
+	ret = ofi_hmem_get_base_addr(cmd->data.ipc_info.iface, ptr,
 				     len, &base,
-				     &cmd->msg.data.ipc_info.base_length);
+				     &cmd->data.ipc_info.base_length);
 	if (ret)
 		return ret;
 
-	ret = ofi_hmem_get_handle(cmd->msg.data.ipc_info.iface, base,
-				  cmd->msg.data.ipc_info.base_length,
-				  (void **)&cmd->msg.data.ipc_info.ipc_handle);
+	ret = ofi_hmem_get_handle(cmd->data.ipc_info.iface, base,
+				  cmd->data.ipc_info.base_length,
+				  (void **)&cmd->data.ipc_info.ipc_handle);
 	if (ret)
 		return ret;
 
-	cmd->msg.data.ipc_info.base_addr = (uintptr_t) base;
-	cmd->msg.data.ipc_info.offset = (uintptr_t) ptr - (uintptr_t) base;
+	cmd->data.ipc_info.base_addr = (uintptr_t) base;
+	cmd->data.ipc_info.offset = (uintptr_t) ptr - (uintptr_t) base;
 
 	return FI_SUCCESS;
 }
@@ -380,7 +378,7 @@ static int smr_format_mmap(struct smr_ep *ep, struct smr_cmd *cmd,
 		goto unlink_close;
 	}
 
-	if (cmd->msg.hdr.op != ofi_op_read_req) {
+	if (cmd->hdr.op != ofi_op_read_req) {
 		if (ofi_copy_from_iov(mapped_ptr, total_len, iov, count, 0)
 		    != total_len) {
 			FI_WARN(&smr_prov, FI_LOG_EP_CTRL, "copy from iov error\n");
@@ -392,9 +390,9 @@ static int smr_format_mmap(struct smr_ep *ep, struct smr_cmd *cmd,
 		pend->map_ptr = mapped_ptr;
 	}
 
-	cmd->msg.hdr.op_src = smr_src_mmap;
-	cmd->msg.hdr.tx_ctx = msg_id;
-	cmd->msg.hdr.size = total_len;
+	cmd->hdr.proto = smr_src_mmap;
+	cmd->hdr.tx_ctx = msg_id;
+	cmd->hdr.size = total_len;
 	pend->map_name = map_name;
 
 	close(fd);
@@ -420,10 +418,10 @@ size_t smr_copy_to_sar(struct smr_ep *ep, struct smr_freestack *sar_pool,
 	size_t start = *bytes_done;
 	int next_sar_buf = 0;
 
-	while ((*bytes_done < cmd->msg.hdr.size) &&
-			(next_sar_buf < cmd->msg.data.buf_batch_size)) {
+	while ((*bytes_done < cmd->hdr.size) &&
+			(next_sar_buf < cmd->data.buf_batch_size)) {
 		sar_buf = smr_freestack_get_entry_from_index(
-				sar_pool, cmd->msg.data.sar[next_sar_buf]);
+				sar_pool, cmd->data.sar[next_sar_buf]);
 
 		*bytes_done += ofi_copy_from_mr_iov(
 				sar_buf->buf, SMR_SAR_SIZE, mr, iov, count,
@@ -432,7 +430,7 @@ size_t smr_copy_to_sar(struct smr_ep *ep, struct smr_freestack *sar_pool,
 		next_sar_buf++;
 	}
 
-	cmd->msg.hdr.status = SMR_STATUS_SAR_FULL;
+	cmd->hdr.status = SMR_STATUS_SAR_FULL;
 	smr_return_cmd(ep->region, cmd);
 
 	return *bytes_done - start;
@@ -447,10 +445,10 @@ size_t smr_copy_from_sar(struct smr_ep *ep, struct smr_freestack *sar_pool,
 	size_t start = *bytes_done;
 	int next_sar_buf = 0;
 
-	while ((*bytes_done < cmd->msg.hdr.size) &&
-			(next_sar_buf < cmd->msg.data.buf_batch_size)) {
+	while ((*bytes_done < cmd->hdr.size) &&
+			(next_sar_buf < cmd->data.buf_batch_size)) {
 		sar_buf = smr_freestack_get_entry_from_index(
-				sar_pool, cmd->msg.data.sar[next_sar_buf]);
+				sar_pool, cmd->data.sar[next_sar_buf]);
 
 		*bytes_done += ofi_copy_to_mr_iov(mr, iov, count, *bytes_done,
 				sar_buf->buf, SMR_SAR_SIZE);
@@ -458,7 +456,7 @@ size_t smr_copy_from_sar(struct smr_ep *ep, struct smr_freestack *sar_pool,
 		next_sar_buf++;
 	}
 
-	cmd->msg.hdr.status = SMR_STATUS_SAR_EMPTY;
+	cmd->hdr.status = SMR_STATUS_SAR_EMPTY;
 	smr_return_cmd(ep->region, cmd);
 
 	return *bytes_done - start;
@@ -481,13 +479,13 @@ static int smr_format_sar(struct smr_ep *ep, struct smr_cmd *cmd,
 	}
 
 	sar_needed = (total_len + SMR_SAR_SIZE - 1) / SMR_SAR_SIZE;
-	cmd->msg.data.buf_batch_size = MIN(SMR_BUF_BATCH_MAX,
+	cmd->data.buf_batch_size = MIN(SMR_BUF_BATCH_MAX,
 			MIN(peer_smr->max_sar_buf_per_peer, sar_needed));
 
 	pthread_spin_lock(&peer_smr->lock);
-	for (i = 0; i < cmd->msg.data.buf_batch_size; i++) {
+	for (i = 0; i < cmd->data.buf_batch_size; i++) {
 		if (smr_freestack_isempty(smr_sar_pool(peer_smr))) {
-			cmd->msg.data.buf_batch_size = i;
+			cmd->data.buf_batch_size = i;
 			if (i == 0) {
 				pthread_spin_unlock(&peer_smr->lock);
 				return -FI_EAGAIN;
@@ -495,21 +493,21 @@ static int smr_format_sar(struct smr_ep *ep, struct smr_cmd *cmd,
 			break;
 		}
 
-		cmd->msg.data.sar[i] =
+		cmd->data.sar[i] =
 			smr_freestack_pop_by_index(smr_sar_pool(peer_smr));
 	}
 	pthread_spin_unlock(&peer_smr->lock);
 
-	cmd->msg.hdr.status = SMR_STATUS_SAR_EMPTY;
-	cmd->msg.hdr.op_src = smr_src_sar;
-	cmd->msg.hdr.size = total_len;
+	cmd->hdr.status = SMR_STATUS_SAR_EMPTY;
+	cmd->hdr.proto = smr_src_sar;
+	cmd->hdr.size = total_len;
 	pending->bytes_done = 0;
 
 	/* Nothing to copy for 0 byte transfer */
-	if (!cmd->msg.hdr.size)
+	if (!cmd->hdr.size)
 		goto out;
 
-	if (cmd->msg.hdr.op != ofi_op_read_req) {
+	if (cmd->hdr.op != ofi_op_read_req) {
 		if (smr_env.use_dsa_sar && ofi_mr_all_host(mr, count)) {
 			//TODO fix DSA
 			// ret = smr_dsa_copy_to_sar(ep, smr_sar_pool(peer_smr),
@@ -1007,7 +1005,7 @@ static int smr_discard(struct fi_peer_rx_entry *rx_entry)
 	//struct smr_region *peer_smr;
 	//struct smr_resp *resp;
 
-	if (cmd_ctx->cmd.msg.hdr.src_data >= smr_src_iov) {
+	if (cmd_ctx->cmd.hdr.proto >= smr_src_iov) {
 		// peer_smr = smr_peer_region(cmd_ctx->ep->region,
 		// 			   cmd_ctx->cmd.msg.hdr.id);
 		// //resp = smr_get_ptr(peer_smr, cmd_ctx->cmd.msg.hdr.src_data);

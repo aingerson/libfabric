@@ -112,8 +112,6 @@ int smr_av_open(struct fid_domain *domain, struct fi_av_attr *attr,
 int smr_query_atomic(struct fid_domain *domain, enum fi_datatype datatype,
 		enum fi_op op, struct fi_atomic_attr *attr, uint64_t flags);
 
-#define SMR_IOV_LIMIT		4
-
 struct smr_tx_entry {
 	struct smr_cmd	cmd;
 	int64_t		peer_id;
@@ -129,7 +127,7 @@ struct smr_tx_entry {
 
 struct smr_pend_entry {
 	struct dlist_entry	entry;
-	struct smr_cmd		cmd;
+	struct smr_cmd		cmd; //refactor to only copy hdr or data if needed (SAR)
 	struct fi_peer_rx_entry	*rx_entry;
 	struct smr_cmd_ctx	*cmd_ctx;
 	size_t			bytes_done;

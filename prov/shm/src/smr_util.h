@@ -61,7 +61,7 @@ extern "C" {
 #define SMR_FLAG_IPC_SOCK (1 << 2)
 #define SMR_FLAG_HMEM_ENABLED (1 << 3)
 
-#define SMR_CMD_SIZE		256	/* align with 64-byte cache line */
+#define SMR_CMD_SIZE		512	/* align with 64-byte cache line */
 
 /* SMR op_src: Specifies data source location */
 enum {
@@ -94,24 +94,27 @@ enum {
 
 /*
  * Unique smr_op_hdr for smr message protocol:
- * 	addr - local shm_id of peer sending msg (for shm lookup)
+ *	tx_ctx - source side context (unused by target side)
+ *	rx_ctx - target side context (unused by source side)
+ * 	id - local shm_id of peer sending msg (for shm lookup)
  * 	op - type of op (ex. ofi_op_msg, defined in ofi_proto.h)
- * 	op_src - msg src (ex. smr_src_inline, defined above)
+ * 	proto - msg src (ex. smr_src_inline, defined above)
  * 	op_flags - operation flags (ex. SMR_REMOTE_CQ_DATA, defined above)
- * 	src_data - src of additional op data (inject offset / resp offset)
- * 	data - remote CQ data
+ * 	proto_Data - src of additional op data (inject offset / resp offset)
+ * 	cq_data - remote CQ data
  */
-struct smr_msg_hdr {
+struct smr_cmd_hdr {
 	uint64_t		tx_ctx;
+	uint64_t		rx_ctx;
 	int64_t			id;
 	uint32_t		op;
-	uint16_t		op_src;
+	uint16_t		proto;
 	uint16_t		op_flags;
 
 	uint64_t		size;
-	uint64_t		src_data;
+	uint64_t		proto_data;
 	uint64_t		status;
-	uint64_t		data;
+	uint64_t		cq_data;
 	union {
 		uint64_t	tag;
 		struct {
@@ -122,44 +125,40 @@ struct smr_msg_hdr {
 } __attribute__ ((aligned(16)));
 
 #define SMR_BUF_BATCH_MAX	64
-#define SMR_MSG_DATA_LEN	(SMR_CMD_SIZE - sizeof(struct smr_msg_hdr))
+#define SMR_MSG_DATA_LEN	(SMR_CMD_SIZE - (sizeof(struct smr_cmd_hdr) + sizeof(struct smr_cmd_rma)))
+#define SMR_IOV_LIMIT		4
 
-union smr_cmd_data {
-	uint8_t			msg[SMR_MSG_DATA_LEN];
-	struct {
-		size_t		iov_count;
-		struct iovec	iov[(SMR_MSG_DATA_LEN - sizeof(size_t)) /
-				    sizeof(struct iovec)];
-	};
-	struct {
-		uint32_t	buf_batch_size;
-		int16_t		sar[SMR_BUF_BATCH_MAX];
-	};
-	struct ipc_info		ipc_info;
-};
 
-struct smr_cmd_msg {
-	struct smr_msg_hdr	hdr;
-	union smr_cmd_data	data;
-};
-
-#define SMR_RMA_DATA_LEN	(128 - sizeof(uint64_t))
 struct smr_cmd_rma {
 	uint64_t		rma_count;
 	union {
-		struct fi_rma_iov	rma_iov[SMR_RMA_DATA_LEN /
-						sizeof(struct fi_rma_iov)];
-		struct fi_rma_ioc	rma_ioc[SMR_RMA_DATA_LEN /
-						sizeof(struct fi_rma_ioc)];
+		struct fi_rma_iov	rma_iov[SMR_IOV_LIMIT];
+		struct fi_rma_ioc	rma_ioc[SMR_IOV_LIMIT];
 	};
 };
 
-struct smr_cmd {
-	uintptr_t cmd;
+struct smr_cmd_data {
 	union {
-		struct smr_cmd_msg	msg;
-		struct smr_cmd_rma	rma;
+		uint8_t			msg[SMR_MSG_DATA_LEN];
+		struct {
+			size_t		iov_count;
+			struct iovec	iov[SMR_IOV_LIMIT];
+		};
+		struct {
+			uint32_t	buf_batch_size;
+			int16_t		sar[SMR_BUF_BATCH_MAX];
+		};
+		struct ipc_info		ipc_info;
 	};
+};
+
+#define SMR_RMA_DATA_LEN	(128 - sizeof(uint64_t))
+
+struct smr_cmd { //176 bytes needed for hdr and rma - data needs to be at least 132 bytes for ipc info (176 + 132 = 308 -> minimum cmd size)
+	struct smr_cmd_hdr	hdr; //72
+	struct smr_cmd_data	data;
+	 /* TODO experiment with moving rma up */
+	struct smr_cmd_rma	rma; //104
 };
 
 #define SMR_INJECT_SIZE		4096
@@ -289,8 +288,8 @@ struct smr_sar_buf {
  * command entry completely and just use the smr_cmd
  */
 struct smr_cmd_entry {
-	struct smr_cmd cmd;
-	struct smr_cmd rma_cmd;
+	uintptr_t ptr; //cast into smr_cmd *
+	struct smr_cmd cmd; //inline command
 };
 
 /* Queue of offsets of the command blocks obtained from the command pool
@@ -395,21 +394,21 @@ static inline uintptr_t smr_get_owner_ptr(struct smr_region *my_smr,
 static inline void smr_return_cmd(struct smr_region *my_smr,
 				  struct smr_cmd *cmd)
 {
-	struct smr_region *peer_smr = smr_peer_region(my_smr, cmd->msg.hdr.id);
-	uintptr_t peer_ptr = smr_get_owner_ptr(my_smr, cmd->msg.hdr.id, (uintptr_t) cmd);
-	uintptr_t *ce;
+	struct smr_region *peer_smr = smr_peer_region(my_smr, cmd->hdr.id);
+	uintptr_t peer_ptr = smr_get_owner_ptr(my_smr, cmd->hdr.id, (uintptr_t) cmd);
+	uintptr_t *queue_entry;
 	int64_t pos;
 	int ret;
 
-	ret = smr_return_queue_next(smr_return_queue(peer_smr), &ce, &pos);
+	ret = smr_return_queue_next(smr_return_queue(peer_smr), &queue_entry, &pos);
 	if (ret == -FI_ENOENT) {
 		assert(0);
 		//this shouldn't happen (ret queue parallel to fs)
 	}
 
-	*ce = peer_ptr;
+	*queue_entry = peer_ptr;
 
-	smr_return_queue_commit(ce, pos);
+	smr_return_queue_commit(queue_entry, pos);
 }
 
 #ifdef __cplusplus
