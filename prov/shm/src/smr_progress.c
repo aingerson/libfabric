@@ -208,7 +208,7 @@ static int smr_progress_return_entry(struct smr_ep *ep,
 
 static void smr_progress_return(struct smr_ep *ep)
 {
-	uintptr_t *queue_entry;
+	struct smr_return_entry *queue_entry;
 	struct smr_cmd *cmd;
 	struct smr_tx_entry *pending;
 	int64_t pos;
@@ -220,8 +220,9 @@ static void smr_progress_return(struct smr_ep *ep)
 		if (ret == -FI_ENOENT)
 			break;
 
-		cmd = (struct smr_cmd *) *queue_entry;
+		cmd = (struct smr_cmd *) queue_entry->ptr;
 		pending = (struct smr_tx_entry *) cmd->hdr.tx_ctx;
+
 		ret = smr_progress_return_entry(ep, pending);
 		if (!ret) {
 			if (cmd->hdr.status) {

@@ -61,7 +61,7 @@ extern "C" {
 #define SMR_FLAG_IPC_SOCK (1 << 2)
 #define SMR_FLAG_HMEM_ENABLED (1 << 3)
 
-#define SMR_CMD_SIZE		512	/* align with 64-byte cache line */
+#define SMR_CMD_SIZE		400	/* align with 64-byte cache line */
 
 /* SMR op_src: Specifies data source location */
 enum {
@@ -100,7 +100,7 @@ enum {
  * 	op - type of op (ex. ofi_op_msg, defined in ofi_proto.h)
  * 	proto - msg src (ex. smr_src_inline, defined above)
  * 	op_flags - operation flags (ex. SMR_REMOTE_CQ_DATA, defined above)
- * 	proto_Data - src of additional op data (inject offset / resp offset)
+ * 	proto_data - src of additional op data (inject offset / resp offset)
  * 	cq_data - remote CQ data
  */
 struct smr_cmd_hdr {
@@ -128,7 +128,6 @@ struct smr_cmd_hdr {
 #define SMR_MSG_DATA_LEN	(SMR_CMD_SIZE - (sizeof(struct smr_cmd_hdr) + sizeof(struct smr_cmd_rma)))
 #define SMR_IOV_LIMIT		4
 
-
 struct smr_cmd_rma {
 	uint64_t		rma_count;
 	union {
@@ -151,6 +150,7 @@ struct smr_cmd_data {
 		struct ipc_info		ipc_info;
 	};
 };
+STATIC_ASSERT(sizeof(struct smr_cmd_data) == SMR_MSG_DATA_LEN, smr_cmd_size);
 
 #define SMR_RMA_DATA_LEN	(128 - sizeof(uint64_t))
 
@@ -160,6 +160,7 @@ struct smr_cmd { //176 bytes needed for hdr and rma - data needs to be at least 
 	 /* TODO experiment with moving rma up */
 	struct smr_cmd_rma	rma; //104
 };
+
 
 #define SMR_INJECT_SIZE		4096
 #define SMR_COMP_INJECT_SIZE	(SMR_INJECT_SIZE / 2)
@@ -292,11 +293,16 @@ struct smr_cmd_entry {
 	struct smr_cmd cmd; //inline command
 };
 
+//temporary wrapper until I get it right
+struct smr_return_entry {
+	uintptr_t ptr;
+};
+
 /* Queue of offsets of the command blocks obtained from the command pool
  * freestack
  */
 OFI_DECLARE_ATOMIC_Q(struct smr_cmd_entry, smr_cmd_queue);
-OFI_DECLARE_ATOMIC_Q(uintptr_t, smr_return_queue);
+OFI_DECLARE_ATOMIC_Q(struct smr_return_entry, smr_return_queue);
 
 static inline struct smr_region *smr_peer_region(struct smr_region *smr, int i)
 {
@@ -396,7 +402,7 @@ static inline void smr_return_cmd(struct smr_region *my_smr,
 {
 	struct smr_region *peer_smr = smr_peer_region(my_smr, cmd->hdr.id);
 	uintptr_t peer_ptr = smr_get_owner_ptr(my_smr, cmd->hdr.id, (uintptr_t) cmd);
-	uintptr_t *queue_entry;
+	struct smr_return_entry *queue_entry;
 	int64_t pos;
 	int ret;
 
@@ -406,7 +412,7 @@ static inline void smr_return_cmd(struct smr_region *my_smr,
 		//this shouldn't happen (ret queue parallel to fs)
 	}
 
-	*queue_entry = peer_ptr;
+	queue_entry->ptr = peer_ptr;
 
 	smr_return_queue_commit(queue_entry, pos);
 }
