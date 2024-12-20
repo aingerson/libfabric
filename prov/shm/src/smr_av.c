@@ -55,7 +55,6 @@ static int smr_map_init(const struct fi_provider *prov, struct smr_map *map,
 	map->flags = flags;
 
 	ofi_rbmap_init(&map->rbmap, smr_name_compare);
-	ofi_spin_init(&map->lock);
 
 	return 0;
 }
@@ -116,19 +115,14 @@ static int smr_av_insert(struct fid_av *av_fid, const void *addr, size_t count,
 	util_av = container_of(av_fid, struct util_av, av_fid);
 	smr_av = container_of(util_av, struct smr_av, util_av);
 
+	ofi_mutex_lock(&util_av->lock);
 	for (i = 0; i < count; i++, addr = (char *) addr + strlen(addr) + 1) {
 		FI_INFO(&smr_prov, FI_LOG_AV, "%s\n", (const char *) addr);
 
 		util_addr = FI_ADDR_NOTAVAIL;
 		if (smr_av->used < SMR_MAX_PEERS) {
-			ret = smr_map_add(&smr_prov, &smr_av->smr_map,
-					  addr, &shm_id);
-			if (!ret) {
-				ofi_mutex_lock(&util_av->lock);
-				ret = ofi_av_insert_addr(util_av, &shm_id,
-							 &util_addr);
-				ofi_mutex_unlock(&util_av->lock);
-			}
+			smr_map_add(&smr_prov, &smr_av->smr_map, addr, &shm_id);
+			ret = ofi_av_insert_addr(util_av, &shm_id, &util_addr);
 		} else {
 			FI_WARN(&smr_prov, FI_LOG_AV,
 				"AV insert failed. The maximum number of AV "
@@ -171,8 +165,8 @@ static int smr_av_insert(struct fid_av *av_fid, const void *addr, size_t count,
 			smr_ep->srx->owner_ops->foreach_unspec_addr(smr_ep->srx,
 								&smr_get_addr);
 		}
-
 	}
+	ofi_mutex_unlock(&util_av->lock);
 
 	return succ_count;
 }
@@ -217,7 +211,6 @@ static int smr_av_remove(struct fid_av *av_fid, fi_addr_t *fi_addr,
 		}
 		smr_av->used--;
 	}
-
 	ofi_mutex_unlock(&util_av->lock);
 	return ret;
 }
