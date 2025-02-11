@@ -112,9 +112,12 @@ struct name {							\
 	ofi_atomic64_t	read_pos;				\
 	uint8_t		pad1[OFI_CACHE_LINE_SIZE -		\
 			     sizeof(ofi_atomic64_t)];		\
+	ofi_atomic64_t	avail;					\
+	uint8_t		pad2[OFI_CACHE_LINE_SIZE -		\
+			     sizeof(ofi_atomic64_t)];		\
 	int		size;					\
 	int		size_mask;				\
-	uint8_t		pad2[OFI_CACHE_LINE_SIZE -		\
+	uint8_t		pad3[OFI_CACHE_LINE_SIZE -		\
 			     (sizeof(int) * 2)];		\
 	struct name ## _entry entry[];				\
 } __attribute__((__aligned__(64)));				\
@@ -128,6 +131,7 @@ static inline void name ## _init(struct name *aq, size_t size)	\
 	aq->size_mask = aq->size - 1;				\
 	ofi_atomic_initialize64(&aq->write_pos, 0);		\
 	ofi_atomic_initialize64(&aq->read_pos, 0);		\
+	ofi_atomic_initialize64(&aq->avail, size);		\
 	for (i = 0; i < size; i++)				\
 		ofi_atomic_initialize64(&aq->entry[i].seq, i);	\
 }								\
@@ -147,7 +151,19 @@ static inline void name ## _free(struct name *aq)		\
 {								\
 	free(aq);						\
 }								\
-static inline int name ## _next(struct name *aq,		\
+static inline bool name ## _claim(struct name *aq)		\
+{								\
+	int64_t avail;						\
+	avail = ofi_atomic_load_explicit64(&aq->avail,		\
+			memory_order_relaxed);			\
+	if (avail > 0) {					\
+		if (ofi_atomic_compare_exchange_weak64(		\
+		    &aq->avail, &avail, avail - 1))		\
+			return true;				\
+	}							\
+	return false;						\
+}								\
+static inline int name ## _assign(struct name *aq,		\
 		entrytype **buf, int64_t *pos)			\
 {								\
 	struct name ## _entry *ce;				\
@@ -165,7 +181,7 @@ static inline int name ## _next(struct name *aq,		\
 				*pos + 1))			\
 				break;				\
 		} else if (diff < 0) {				\
-			return -FI_ENOENT;			\
+			assert(0);				\
 		} else {					\
 			*pos = ofi_atomic_load_explicit64(	\
 				&aq->write_pos,			\
@@ -174,6 +190,14 @@ static inline int name ## _next(struct name *aq,		\
 	}							\
 	*buf = &ce->buf;					\
 	return FI_SUCCESS;					\
+}								\
+static inline int name ## _claim_assign(struct name *aq,	\
+	entrytype **buf, int64_t *pos)				\
+{								\
+	if (name ## _claim(aq)) {				\
+		return name ## _assign(aq, buf, pos);		\
+	}							\
+	return -FI_ENOENT;					\
 }								\
 static inline void name ## _release(struct name *aq,		\
 			entrytype *buf,				\
@@ -184,6 +208,26 @@ static inline void name ## _release(struct name *aq,		\
 	ofi_atomic_store_explicit64(&ce->seq,			\
 			      pos + aq->size,			\
 			      memory_order_release);		\
+}								\
+static inline void name ## _discard(struct name *aq,		\
+			entrytype *buf,				\
+			int64_t pos)				\
+{								\
+	int64_t avail;						\
+	do {							\
+		avail = ofi_atomic_load_explicit64(&aq->avail,	\
+				memory_order_relaxed);		\
+		if (ofi_atomic_compare_exchange_weak64(		\
+			&aq->avail, &avail, avail + 1))		\
+			return;					\
+	} while (1);						\
+}								\
+static inline void name ## _release_discard(struct name *aq,	\
+			entrytype *buf,				\
+			int64_t pos)				\
+{								\
+	name ## _release(aq, buf, pos);				\
+	name ## _discard(aq, buf, pos);				\
 }								\
 static inline int name ## _head(struct name *aq,		\
 		entrytype **buf, int64_t *pos)			\
@@ -214,7 +258,7 @@ again:								\
 	*buf = &ce->buf;					\
 	if (ce->noop) {						\
 		ce->noop = false;				\
-		name ##_release(aq, *buf, *pos);		\
+		name ##_release_discard(aq, *buf, *pos);	\
 		goto again;					\
 	}							\
 	return FI_SUCCESS;					\
@@ -227,7 +271,7 @@ static inline void name ## _commit(entrytype *buf,		\
 	ofi_atomic_store_explicit64(&ce->seq, pos + 1,		\
 			      memory_order_release);		\
 }								\
-static inline void name ## _discard(entrytype *buf,		\
+static inline void name ## _cancel(entrytype *buf,		\
 				int64_t pos)			\
 {								\
 	struct name ## _entry *ce;				\

@@ -173,7 +173,7 @@ static void smr_send_name(struct smr_ep *ep, int64_t id)
 	if (smr_peer_data(ep->region)[id].name_sent)
 		return;
 
-	ret = smr_cmd_queue_next(smr_cmd_queue(peer_smr), &ce, &pos);
+	ret = smr_cmd_queue_claim_assign(smr_cmd_queue(peer_smr), &ce, &pos);
 	if (ret == -FI_ENOENT)
 		return;
 

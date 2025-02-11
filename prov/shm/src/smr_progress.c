@@ -48,7 +48,7 @@ static void smr_progress_overflow(struct smr_ep *ep)
 	while (entry) {
 		cmd = (struct smr_cmd *) entry;
 		peer_smr = smr_peer_region(ep, cmd->hdr.tx_id);
-		ret = smr_cmd_queue_next(smr_cmd_queue(peer_smr), &ce, &pos);
+		ret = smr_cmd_queue_assign(smr_cmd_queue(peer_smr), &ce, &pos);
 		if (ret == -FI_ENOENT)
 			return;
 
@@ -210,7 +210,7 @@ static void smr_progress_return(struct smr_ep *ep)
 			}
 			smr_freestack_push(smr_cmd_stack(ep->region), cmd);
 		}
-		smr_return_queue_release(smr_return_queue(ep->region),
+		smr_return_queue_release_discard(smr_return_queue(ep->region),
 					 queue_entry, pos);
 	}
 }
@@ -442,6 +442,7 @@ static ssize_t smr_progress_sar(struct smr_ep *ep, struct smr_cmd *cmd,
 	struct iovec sar_iov[SMR_IOV_LIMIT];
 	ssize_t ret = FI_SUCCESS;
 
+	printf("If you see this, I might break\n");
 	memcpy(sar_iov, iov, sizeof(*iov) * iov_count);
 	(void) ofi_truncate_iov(sar_iov, &iov_count, cmd->hdr.size);
 
@@ -1149,7 +1150,7 @@ static void smr_progress_cmd(struct smr_ep *ep)
 				"unidentified operation type\n");
 			ret = -FI_EINVAL;
 		}
-		smr_cmd_queue_release(smr_cmd_queue(ep->region), ce, pos);
+		smr_cmd_queue_release_discard(smr_cmd_queue(ep->region), ce, pos);
 		if (ret) {
 			if (ret != -FI_EAGAIN) {
 				FI_WARN(&smr_prov, FI_LOG_EP_CTRL,

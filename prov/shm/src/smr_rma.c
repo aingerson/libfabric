@@ -63,7 +63,7 @@ static ssize_t smr_rma_fast(struct smr_ep *ep, struct smr_region *peer_smr,
 	int ret, i;
 	int64_t pos;
 
-	ret = smr_cmd_queue_next(smr_cmd_queue(peer_smr), &ce, &pos);
+	ret = smr_cmd_queue_claim_assign(smr_cmd_queue(peer_smr), &ce, &pos);
 	if (ret == -FI_ENOENT)
 		return -FI_EAGAIN;
 
@@ -85,7 +85,7 @@ static ssize_t smr_rma_fast(struct smr_ep *ep, struct smr_region *peer_smr,
 		FI_WARN(&smr_prov, FI_LOG_EP_CTRL, "error doing fast RMA\n");
 		ret = smr_write_err_comp(ep->util_ep.rx_cq, NULL, op_flags, 0,
 					 ret);
-		smr_cmd_queue_discard(ce, pos);
+		smr_cmd_queue_cancel(ce, pos);
 		return -FI_EAGAIN;
 	}
 
@@ -162,7 +162,7 @@ static ssize_t smr_generic_rma(
 		goto unlock;
 	}
 
-	ret = smr_cmd_queue_next(smr_cmd_queue(peer_smr), &ce, &pos);
+	ret = smr_cmd_queue_claim_assign(smr_cmd_queue(peer_smr), &ce, &pos);
 	if (ret == -FI_ENOENT) {
 		ret = -FI_EAGAIN;
 		goto unlock;
@@ -175,7 +175,7 @@ static ssize_t smr_generic_rma(
 				 total_len, op_flags);
 	if (proto != smr_proto_inline) {
 		if (smr_freestack_isempty(smr_cmd_stack(ep->region))) {
-			smr_cmd_queue_discard(ce, pos);
+			smr_cmd_queue_cancel(ce, pos);
 			ret = -FI_EAGAIN;
 			goto unlock;
 		}
@@ -192,7 +192,7 @@ static ssize_t smr_generic_rma(
 	if (ret) {
 		if (proto != smr_proto_inline)
 			smr_freestack_push(smr_cmd_stack(ep->region), cmd);
-		smr_cmd_queue_discard(ce, pos);
+		smr_cmd_queue_cancel(ce, pos);
 		goto unlock;
 	}
 
@@ -357,7 +357,7 @@ static ssize_t smr_generic_rma_inject(
 
 	ofi_genlock_lock(&ep->util_ep.lock);
 
-	ret = smr_cmd_queue_next(smr_cmd_queue(peer_smr), &ce, &pos);
+	ret = smr_cmd_queue_claim_assign(smr_cmd_queue(peer_smr), &ce, &pos);
 	if (ret == -FI_ENOENT)
 		return -FI_EAGAIN;
 
@@ -368,7 +368,7 @@ static ssize_t smr_generic_rma_inject(
 	} else {
 		proto = smr_proto_inject;
 		if (smr_freestack_isempty(smr_cmd_stack(ep->region))) {
-			smr_cmd_queue_discard(ce, pos);
+			smr_cmd_queue_cancel(ce, pos);
 			ret = -FI_EAGAIN;
 			goto unlock;
 		}
@@ -383,7 +383,7 @@ static ssize_t smr_generic_rma_inject(
 	if (ret) {
 		if (proto != smr_proto_inline)
 			smr_freestack_push(smr_cmd_stack(ep->region), cmd);
-		smr_cmd_queue_discard(ce, pos);
+		smr_cmd_queue_cancel(ce, pos);
 		goto unlock;
 	}
 	smr_add_rma_cmd(peer_smr, &rma_iov, 1, cmd);
