@@ -227,9 +227,13 @@ int lnx_get_tag(struct fid_peer_srx *srx, struct fi_peer_match_attr *match,
 
 	rc = -FI_ENOENT;
 
+	cep->cep_t_stats.st_num_unexp_msgs++;
+
 	goto finalize;
 
 assign:
+	cep->cep_t_stats.st_num_posted_recvs++;
+
 	rx_entry->rx_entry.addr = lnx_get_core_addr(cep, addr);
 	if (rx_entry->rx_entry.desc && *rx_entry->rx_entry.desc) {
 		rc = lnx_mr_regattr_core(cep->cep_domain,
@@ -525,6 +529,9 @@ ssize_t lnx_tsend(struct fid_ep *ep, const void *buf, size_t len, void *desc,
 
 	rc = fi_tsend(cep->cep_ep, buf, len, core_desc, core_addr, tag, context);
 
+	if (!rc)
+		cep->cep_t_stats.st_num_tsend++;
+
 	return rc;
 }
 
@@ -561,6 +568,9 @@ ssize_t lnx_tsendv(struct fid_ep *ep, const struct iovec *iov, void **desc,
 
 	rc = fi_tsendv(cep->cep_ep, iov, (core_desc) ? &core_desc : NULL,
 		       count, core_addr, tag, context);
+
+	if (!rc)
+		cep->cep_t_stats.st_num_tsendv++;
 
 	return rc;
 }
@@ -601,6 +611,9 @@ ssize_t lnx_tsendmsg(struct fid_ep *ep, const struct fi_msg_tagged *msg,
 
 	rc = fi_tsendmsg(cep->cep_ep, &core_msg, flags);
 
+	if (!rc)
+		cep->cep_t_stats.st_num_tsendmsg++;
+
 	return rc;
 }
 
@@ -625,6 +638,9 @@ ssize_t lnx_tinject(struct fid_ep *ep, const void *buf, size_t len,
 	       core_addr, tag, buf, len);
 
 	rc = fi_tinject(cep->cep_ep, buf, len, core_addr, tag);
+
+	if (!rc)
+		cep->cep_t_stats.st_num_tinject++;
 
 	return rc;
 }
@@ -660,6 +676,9 @@ ssize_t lnx_tsenddata(struct fid_ep *ep, const void *buf, size_t len, void *desc
 	rc = fi_tsenddata(cep->cep_ep, buf, len, core_desc,
 			  data, core_addr, tag, context);
 
+	if (!rc)
+		cep->cep_t_stats.st_num_tsenddata++;
+
 	return rc;
 }
 
@@ -684,6 +703,9 @@ ssize_t lnx_tinjectdata(struct fid_ep *ep, const void *buf, size_t len,
 	       core_addr, tag, buf, len);
 
 	rc = fi_tinjectdata(cep->cep_ep, buf, len, data, core_addr, tag);
+
+	if (!rc)
+		cep->cep_t_stats.st_num_tinjectdata++;
 
 	return rc;
 }

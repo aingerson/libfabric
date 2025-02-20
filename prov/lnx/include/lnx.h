@@ -83,6 +83,17 @@ struct lnx_core_av {
 	struct dlist_entry cav_endpoints;
 };
 
+struct lnx_t_traffic_stats {
+	uint64_t st_num_tsend;
+	uint64_t st_num_tsendv;
+	uint64_t st_num_tsendmsg;
+	uint64_t st_num_tsenddata;
+	uint64_t st_num_tinject;
+	uint64_t st_num_tinjectdata;
+	uint64_t st_num_posted_recvs;
+	uint64_t st_num_unexp_msgs;
+};
+
 struct lnx_core_ep {
 	struct dlist_entry cep_av_entry;
 	struct fid_peer_srx cep_srx;
@@ -93,8 +104,7 @@ struct lnx_core_ep {
 	struct lnx_core_domain *cep_domain;
 	struct lnx_core_av *cep_cav;
 	struct lnx_ep *cep_parent;
-	uint64_t cep_num_sends;
-	uint64_t cep_num_posted_recvs;
+	struct lnx_t_traffic_stats cep_t_stats;
 };
 
 struct lnx_core_cq {
@@ -313,12 +323,6 @@ lnx_select_send_endpoints(struct lnx_ep *lep, fi_addr_t lnx_addr,
 	*core_addr = map_addr->map_addrs[idx];
 
 	*cep_out = cep;
-
-	/* keep statistics. Sends per domain that could have multiple
-	 * endpoints as well as sends on this specific endpoint
-	 */
-	cep->cep_domain->cd_num_sends++;
-	cep->cep_num_sends++;
 
 	return FI_SUCCESS;
 }
