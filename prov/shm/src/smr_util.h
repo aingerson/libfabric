@@ -57,7 +57,8 @@ extern "C" {
  * This maximizes the inline payload. Increasing this value will increase the
  * atomic queue entry to 576 bytes.
  */
-#define SMR_CMD_SIZE		488
+//512-64-8 = 440
+#define SMR_CMD_SIZE		440
 
 /* reserves 0-255 for defined ops and room for new ops
  * 256 and beyond reserved for ctrl ops

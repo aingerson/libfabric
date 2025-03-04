@@ -165,16 +165,14 @@ static void smr_send_name(struct smr_ep *ep, int64_t id)
 {
 	struct smr_region *peer_smr;
 	struct smr_cmd_entry *ce;
-	int64_t pos;
-	int ret;
 
 	peer_smr = smr_peer_region(ep, id);
 
 	if (smr_peer_data(ep->region)[id].name_sent)
 		return;
 
-	ret = smr_cmd_queue_next(smr_cmd_queue(peer_smr), &ce, &pos);
-	if (ret == -FI_ENOENT)
+	ce = smr_cmd_queue_claim_assign(smr_cmd_queue(peer_smr));
+	if (!ce)
 		return;
 
 	ce->ptr = smr_peer_to_peer(ep, id, (uintptr_t) &ce->cmd);
@@ -187,7 +185,7 @@ static void smr_send_name(struct smr_ep *ep, int64_t id)
 	memcpy(ce->cmd.data.msg, ep->name, ce->cmd.hdr.size);
 
 	smr_peer_data(ep->region)[id].name_sent = 1;
-	smr_cmd_queue_commit(ce, pos);
+	smr_cmd_queue_commit(ce);
 }
 
 int64_t smr_verify_peer(struct smr_ep *ep, fi_addr_t fi_addr)
@@ -370,6 +368,7 @@ static int smr_format_sar(struct smr_ep *ep, struct smr_cmd *cmd,
 		ret = pend->sar_copy_fn(ep, pend);
 		if (ret < 0 && ret != -FI_EBUSY) {
 			for (i = cmd->data.buf_batch_size - 1; i >= 0; i--) {
+				printf("SAR, shouldn't be here\n");
 				smr_freestack_push_by_index(
 						smr_sar_pool(ep->region),
 						cmd->data.sar[i]);

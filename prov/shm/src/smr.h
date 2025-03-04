@@ -117,13 +117,11 @@ static inline void smr_return_cmd(struct smr_ep *ep, struct smr_cmd *cmd)
 {
 	struct smr_region *peer_smr = smr_peer_region(ep, cmd->hdr.rx_id);
 	uintptr_t peer_ptr;
-	int64_t pos;
 	struct smr_return_entry *queue_entry;
-	int ret;
 
-	ret = smr_return_queue_next(smr_return_queue(peer_smr), &queue_entry,
-				    &pos);
-	if (ret == -FI_ENOENT) {
+	//return queue has built in claim
+	queue_entry = smr_return_queue_assign(smr_return_queue(peer_smr));
+	if (!queue_entry) {
 		/* return queue runs in parallel to command stack
 		 * ie we will never run out of space
 		 */
@@ -136,7 +134,7 @@ static inline void smr_return_cmd(struct smr_ep *ep, struct smr_cmd *cmd)
 	       peer_smr->total_size);
 	queue_entry->ptr = peer_ptr;
 
-	smr_return_queue_commit(queue_entry, pos);
+	smr_return_queue_commit(queue_entry);
 }
 
 struct smr_env {
