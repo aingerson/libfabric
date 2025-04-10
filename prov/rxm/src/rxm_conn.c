@@ -39,9 +39,6 @@
 #include <ofi_util.h>
 #include "rxm.h"
 
-
-static void *rxm_cm_progress(void *arg);
-static void *rxm_cm_atomic_progress(void *arg);
 static void rxm_flush_msg_cq(struct rxm_ep *rxm_ep);
 
 
@@ -951,7 +948,7 @@ static void *rxm_cm_progress(void *arg)
 	return NULL;
 }
 
-static void *rxm_cm_atomic_progress(void *arg)
+static void *rxm_cm_data_progress(void *arg)
 {
 	struct rxm_ep *ep = container_of(arg, struct rxm_ep, util_ep);
 	struct rxm_fabric *fabric;
@@ -1036,14 +1033,15 @@ int rxm_start_listen(struct rxm_ep *ep)
 	ep->msg_info->src_addrlen = addr_len;
 	ofi_addr_set_port(ep->msg_info->src_addr, 0);
 
-	if (ep->util_ep.domain->data_progress == FI_PROGRESS_AUTO ||
+	if (ep->util_ep.domain->control_progress == FI_PROGRESS_AUTO ||
+	    ep->util_ep.domain->data_progress == FI_PROGRESS_AUTO ||
 	    force_auto_progress) {
 
 		assert(ep->util_ep.domain->threading == FI_THREAD_SAFE);
 		ep->do_progress = true;
 		ret = pthread_create(&ep->cm_thread, 0,
-				     ep->rxm_info->caps & FI_ATOMIC ?
-				     rxm_cm_atomic_progress : rxm_cm_progress, ep);
+				     ep->util_ep.domain->data_progress == FI_PROGRESS_AUTO ?
+				     rxm_cm_data_progress : rxm_cm_progress, ep);
 		if (ret) {
 			RXM_WARN_ERR(FI_LOG_EP_CTRL, "pthread_create", -ret);
 			return -ret;
