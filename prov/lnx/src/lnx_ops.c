@@ -325,7 +325,7 @@ out:
  * request on the SRQ; happens in the lnx_process_recv()
  */
 static int lnx_process_recv(struct lnx_ep *lep, const struct iovec *iov, void *desc,
-			fi_addr_t addr, size_t count, struct lnx_peer *lp, uint64_t tag,
+			fi_addr_t addr, size_t count, uint64_t tag,
 			uint64_t ignore, void *context, uint64_t flags,
 			bool tagged)
 {
@@ -431,39 +431,31 @@ out:
 	return rc;
 }
 
-static ssize_t
-lnx_recv_common(struct fid_ep *ep, const struct iovec *iov, void *desc,
-		fi_addr_t src_addr, uint64_t tag, uint64_t ignore,
-		void *context, uint64_t flags)
+ssize_t lnx_trecv(struct fid_ep *ep, void *buf, size_t len, void *desc,
+	fi_addr_t src_addr, uint64_t tag, uint64_t ignore, void *context)
 {
-	int rc;
 	struct lnx_ep *lep;
-	struct lnx_peer *lp;
+	const struct iovec iov = {.iov_base = buf, .iov_len = len};
 
 	lep = container_of(ep, struct lnx_ep, le_ep.ep_fid.fid);
 	if (!lep)
 		return -FI_ENOSYS;
 
-	lp = lnx_av_lookup_addr(lep->le_lav, src_addr);
-	rc = lnx_process_recv(lep, iov, desc, src_addr, 1, lp, tag, ignore,
-			      context, flags, true);
-
-	return rc;
-}
-
-ssize_t lnx_trecv(struct fid_ep *ep, void *buf, size_t len, void *desc,
-		fi_addr_t src_addr, uint64_t tag, uint64_t ignore, void *context)
-{
-	const struct iovec iov = {.iov_base = buf, .iov_len = len};
-
-	return lnx_recv_common(ep, &iov, desc, src_addr, tag, ignore, context, 0);
+	return lnx_process_recv(lep, &iov, desc, src_addr, 1, tag, ignore,
+				context, lnx_ep_rx_flags(lep), true);
 }
 
 ssize_t lnx_trecvv(struct fid_ep *ep, const struct iovec *iov, void **desc,
-		size_t count, fi_addr_t src_addr, uint64_t tag, uint64_t ignore,
-		void *context)
+	size_t count, fi_addr_t src_addr, uint64_t tag, uint64_t ignore,
+	void *context)
 {
 	void *mr_desc;
+	struct lnx_ep *lep;
+
+	lep = container_of(ep, struct lnx_ep, le_ep.ep_fid.fid);
+	if (!lep)
+		return -FI_ENOSYS;
+
 
 	if (count == 0) {
 		mr_desc = NULL;
@@ -474,13 +466,19 @@ ssize_t lnx_trecvv(struct fid_ep *ep, const struct iovec *iov, void **desc,
 		return -FI_EINVAL;
 	}
 
-	return lnx_recv_common(ep, iov, mr_desc, src_addr, tag, ignore, context, 0);
+	return lnx_process_recv(lep, iov, mr_desc, src_addr, 1, tag, ignore,
+				context, lnx_ep_rx_flags(lep), true);
 }
 
 ssize_t lnx_trecvmsg(struct fid_ep *ep, const struct fi_msg_tagged *msg,
-		     uint64_t flags)
+					 uint64_t flags)
 {
 	void *mr_desc;
+	struct lnx_ep *lep;
+
+	lep = container_of(ep, struct lnx_ep, le_ep.ep_fid.fid);
+	if (!lep)
+		return -FI_ENOSYS;
 
 	if (msg->iov_count == 0) {
 		mr_desc = NULL;
@@ -491,8 +489,9 @@ ssize_t lnx_trecvmsg(struct fid_ep *ep, const struct fi_msg_tagged *msg,
 		return -FI_EINVAL;
 	}
 
-	return lnx_recv_common(ep, msg->msg_iov, mr_desc, msg->addr,
-			       msg->tag, msg->ignore, msg->context, flags);
+	return lnx_process_recv(lep, msg->msg_iov, mr_desc, msg->addr, 1,
+				msg->tag, msg->ignore, msg->context,
+				flags | lep->le_ep.rx_msg_flags, true);
 }
 
 ssize_t lnx_tsend(struct fid_ep *ep, const void *buf, size_t len, void *desc,
