@@ -1325,6 +1325,20 @@ int ft_client_connect(void)
 	return 0;
 }
 
+static void warmup_core(void)
+{
+       struct timespec a, b;
+       int timeout = 2;
+
+       clock_gettime(CLOCK_MONOTONIC, &a);
+
+       do {
+               clock_gettime(CLOCK_MONOTONIC, &b);
+               if ((b.tv_sec - a.tv_sec) > timeout)
+                       return;
+       } while (1);
+}
+
 int ft_init_fabric(void)
 {
 	int ret;
@@ -1379,6 +1393,8 @@ int ft_init_fabric(void)
 		if (ret)
 			return ret;
 	}
+
+	warmup_core();
 
 	return 0;
 }
