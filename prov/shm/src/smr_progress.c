@@ -40,8 +40,6 @@ void smr_resend_cmd(struct smr_ep *ep, struct smr_cmd *cmd)
 	struct smr_cmd_entry *ce;
 	struct smr_region *peer_smr;
 
-	cmd->hdr.entry = 0;
-
 	peer_smr = smr_peer_region(ep, cmd->hdr.tx_id);
 	ce = smr_cmd_queue_assign(smr_cmd_queue(peer_smr));
 	assert(ce);

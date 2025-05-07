@@ -94,7 +94,6 @@ enum {
  * 	atomic_op	atomic operation for FI_ATOMIC API only
  */
 struct smr_cmd_hdr {
-	uint64_t		entry;//do we need this?
 	uint64_t		tx_ctx;
 	uint64_t		rx_ctx;
 	int64_t			rx_id;
@@ -111,8 +110,8 @@ struct smr_cmd_hdr {
 			uint8_t	datatype;
 			uint8_t	atomic_op;
 		};
-	};
-} __attribute__ ((aligned(16)));
+	} __attribute__((__packed__));
+};
 
 #define SMR_BUF_BATCH_MAX	2
 #define SMR_MSG_DATA_LEN	(SMR_CMD_SIZE - \
@@ -125,7 +124,7 @@ struct smr_cmd_rma {
 	union {
 		struct fi_rma_iov	rma_iov[SMR_IOV_LIMIT];
 		struct fi_rma_ioc	rma_ioc[SMR_IOV_LIMIT];
-	};
+	} __attribute__((__packed__));
 };
 
 struct smr_cmd_data {
@@ -140,7 +139,7 @@ struct smr_cmd_data {
 			int16_t		sar[SMR_BUF_BATCH_MAX];
 		};
 		struct ipc_info		ipc_info;
-	};
+	} __attribute__((__packed__));
 };
 #ifdef static_assert
 static_assert(sizeof(struct smr_cmd_data) == SMR_MSG_DATA_LEN,

@@ -107,6 +107,8 @@ enum {
 #define OFI_DECLARE_ATOMIC_Q(entrytype, name)			\
 struct name ## _entry {						\
 	ofi_atomic64_t	state;					\
+	uint8_t		pad0[OFI_CACHE_LINE_SIZE -		\
+			     sizeof(ofi_atomic64_t)];		\
 	entrytype	buf;					\
 } __attribute__((__aligned__(64)));				\
 								\
