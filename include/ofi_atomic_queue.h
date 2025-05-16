@@ -94,6 +94,7 @@ extern "C" {
 
 #define OFI_CACHE_LINE_SIZE (64)
 
+typedef void (*ofi_aq_init_fn)(void *);
 /*
  * Base address of atomic queue must be cache line aligned to maximize atomic
  * value perforamnce benefits
@@ -110,8 +111,10 @@ struct name {							\
 	uint8_t		pad0[OFI_CACHE_LINE_SIZE -		\
 			     sizeof(ofi_atomic64_t)];		\
 	ofi_atomic64_t	read_pos;				\
+	ofi_aq_init_fn	init_fn;				\
 	uint8_t		pad1[OFI_CACHE_LINE_SIZE -		\
-			     sizeof(ofi_atomic64_t)];		\
+			     (sizeof(ofi_atomic64_t) +		\
+			     sizeof(ofi_aq_init_fn))];		\
 	int		size;					\
 	int		size_mask;				\
 	uint8_t		pad2[OFI_CACHE_LINE_SIZE -		\
@@ -119,17 +122,21 @@ struct name {							\
 	struct name ## _entry entry[];				\
 } __attribute__((__aligned__(64)));				\
 								\
-static inline void name ## _init(struct name *aq, size_t size)	\
+static inline void name ## _init(struct name *aq, size_t size,	\
+				 ofi_aq_init_fn init_fn)	\
 {								\
 	size_t i;						\
 	assert(size == roundup_power_of_two(size));		\
 	assert(!((uintptr_t) aq % OFI_CACHE_LINE_SIZE));	\
 	aq->size = size;					\
 	aq->size_mask = aq->size - 1;				\
+	aq->init_fn = init_fn;					\
 	ofi_atomic_initialize64(&aq->write_pos, 0);		\
 	ofi_atomic_initialize64(&aq->read_pos, 0);		\
 	for (i = 0; i < size; i++) {				\
 		ofi_atomic_initialize64(&aq->entry[i].seq, i);	\
+		if (aq->init_fn)				\
+			aq->init_fn(&aq->entry[i].buf);		\
 		aq->entry[i].noop = false;			\
 	}							\
 }								\
@@ -142,7 +149,8 @@ static inline struct name * name ## _create(size_t size)	\
 			sizeof(struct name ## _entry) *		\
 			(roundup_power_of_two(size)));		\
 	if (aq)							\
-		name ##_init(aq, roundup_power_of_two(size));	\
+		name ##_init(aq, roundup_power_of_two(size),	\
+			     NULL);				\
 	return aq;						\
 }								\
 								\
@@ -156,11 +164,12 @@ static inline int name ## _next(struct name *aq,		\
 	struct name ## _entry *ce;				\
 	int64_t diff, seq;					\
 	*pos = ofi_atomic_load_explicit64(&aq->write_pos,	\
-				    memory_order_relaxed);	\
+					  memory_order_relaxed);\
 	for (;;) {						\
 		ce = &aq->entry[*pos & aq->size_mask];		\
-		seq = ofi_atomic_load_explicit64(&(ce->seq),	\
-			memory_order_acquire);			\
+		seq = ofi_atomic_load_explicit64(		\
+				&(ce->seq),			\
+				memory_order_acquire);		\
 		diff = seq - *pos;				\
 		if (diff == 0) {				\
 			if (ofi_atomic_compare_exchange_weak64(	\
@@ -184,9 +193,11 @@ static inline void name ## _release(struct name *aq,		\
 {								\
 	struct name ## _entry *ce;				\
 	ce = container_of(buf, struct name ## _entry, buf);	\
+	if (aq->init_fn)					\
+		aq->init_fn(&ce->buf);				\
 	ofi_atomic_store_explicit64(&ce->seq,			\
-			      pos + aq->size,			\
-			      memory_order_release);		\
+				    pos + aq->size,		\
+				    memory_order_release);	\
 }								\
 static inline int name ## _head(struct name *aq,		\
 		entrytype **buf, int64_t *pos)			\
@@ -198,13 +209,14 @@ again:								\
 			memory_order_relaxed);			\
 	for (;;) {						\
 		ce = &aq->entry[*pos & aq->size_mask];		\
-		seq = ofi_atomic_load_explicit64(&(ce->seq),	\
-			memory_order_acquire);			\
+		seq = ofi_atomic_load_explicit64(		\
+				&(ce->seq),			\
+				memory_order_acquire);		\
 		diff = seq - (*pos + 1);			\
 		if (diff == 0) {				\
 			if (ofi_atomic_compare_exchange_weak64(	\
-				&aq->read_pos, pos,		\
-				*pos + 1))			\
+					&aq->read_pos, pos,	\
+					*pos + 1))		\
 				break;				\
 		} else if (diff < 0) {				\
 			return -FI_ENOENT;			\
@@ -228,7 +240,7 @@ static inline void name ## _commit(entrytype *buf,		\
 	struct name ## _entry *ce;				\
 	ce = container_of(buf, struct name ## _entry, buf);	\
 	ofi_atomic_store_explicit64(&ce->seq, pos + 1,		\
-			      memory_order_release);		\
+				    memory_order_release);	\
 }								\
 static inline void name ## _discard(entrytype *buf,		\
 				int64_t pos)			\
@@ -237,7 +249,7 @@ static inline void name ## _discard(entrytype *buf,		\
 	ce = container_of(buf, struct name ## _entry, buf);	\
 	ce->noop = true;					\
 	ofi_atomic_store_explicit64(&ce->seq, pos + 1,		\
-			      memory_order_release);		\
+				    memory_order_release);	\
 }								\
 void dummy ## name (void) /* work-around global ; scope */
 
