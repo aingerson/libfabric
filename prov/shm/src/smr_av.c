@@ -40,13 +40,14 @@ void smr_map_to_endpoint(struct smr_ep *ep, int64_t id)
 	struct smr_peer_data *local_peers;
 
 	assert(ofi_genlock_held(&container_of(ep->util_ep.av, struct smr_av,
-	      			util_av)->util_av.lock));
+	      				      util_av)->util_av.lock));
 	peer_smr = smr_peer_region(ep, id);
 	if (!ep->map->peers[id].id_assigned || !peer_smr)
 	    return;
 
 	local_peers = smr_peer_data(ep->region);
-	
+	local_peers[id].local_region = (uintptr_t) peer_smr;
+
 	if (ep->region == peer_smr || !(ep->region->flags & SMR_FLAG_CMA_INIT))
 		smr_cma_check(ep->region, peer_smr);
 
@@ -72,7 +73,6 @@ void smr_map_to_endpoint(struct smr_ep *ep, int64_t id)
 
 	return;
 }
-
 
 static int smr_match_name(struct dlist_entry *item, const void *args)
 {
@@ -352,16 +352,14 @@ static void smr_map_cleanup(struct smr_av *av)
 
 static int smr_av_close(struct fid *fid)
 {
+	struct smr_av *av;
 	int ret;
-	struct util_av *av;
-	struct smr_av *smr_av;
 
-	av = container_of(fid, struct util_av, av_fid);
-	smr_av = container_of(av, struct smr_av, util_av);
+	av = container_of(fid, struct smr_av, util_av.av_fid);
 
-	smr_map_cleanup(smr_av);
+	smr_map_cleanup(av);
 
-	ret = ofi_av_close(av);
+	ret = ofi_av_close(&av->util_av);
 	if (ret)
 		return ret;
 
@@ -369,19 +367,16 @@ static int smr_av_close(struct fid *fid)
 	return 0;
 }
 
-
 static fi_addr_t smr_get_addr(struct fi_peer_rx_entry *rx_entry)
 {
 	struct smr_cmd_ctx *cmd_ctx = rx_entry->peer_context;
+	struct smr_av *av;
 
-	return cmd_ctx->ep->map->peers[cmd_ctx->cmd.hdr.rx_id].fiaddr;
+	av = container_of(cmd_ctx->ep->util_ep.av, struct smr_av, util_av);
+
+	return av->smr_map.peers[cmd_ctx->cmd->hdr.rx_id].fiaddr;
 }
 
-
-/*
- * Input address: smr name (string)
- * output address: index (fi_addr_t), the output from util_av
- */
 static int smr_av_insert(struct fid_av *av_fid, const void *addr, size_t count,
 			 fi_addr_t *fi_addr, uint64_t flags, void *context)
 {
@@ -413,7 +408,8 @@ static int smr_av_insert(struct fid_av *av_fid, const void *addr, size_t count,
 			ret = -FI_ENOMEM;
 		}
 
-		FI_INFO(&smr_prov, FI_LOG_AV, "fi_addr: %" PRIu64 "\n", util_addr);
+		FI_INFO(&smr_prov, FI_LOG_AV, "fi_addr: %" PRIu64 "\n",
+			util_addr);
 
 		if (ret) {
 			if (fi_addr)
@@ -442,18 +438,18 @@ static int smr_av_insert(struct fid_av *av_fid, const void *addr, size_t count,
 					       av_entry);
         		smr_ep = container_of(util_ep, struct smr_ep, util_ep);
 			smr_ep->region->max_sar_buf_per_peer =
-				SMR_MAX_PEERS / smr_av->smr_map.num_peers;
-			smr_ep->srx->owner_ops->foreach_unspec_addr(smr_ep->srx,
-								&smr_get_addr);
+				MIN(SMR_BUF_BATCH_MAX,
+				    SMR_MAX_PEERS / smr_av->smr_map.num_peers);
+			smr_ep->srx->owner_ops->foreach_unspec_addr(
+						smr_ep->srx, &smr_get_addr);
 		}
-
 	}
 	ofi_genlock_unlock(&util_av->lock);
 	return succ_count;
 }
 
-static int smr_av_remove(struct fid_av *av_fid, fi_addr_t *fi_addr, size_t count,
-			 uint64_t flags)
+static int smr_av_remove(struct fid_av *av_fid, fi_addr_t *fi_addr,
+			 size_t count, uint64_t flags)
 {
 	struct util_av *util_av;
 	struct util_ep *util_ep;
@@ -479,15 +475,16 @@ static int smr_av_remove(struct fid_av *av_fid, fi_addr_t *fi_addr, size_t count
 
 		smr_map_del(&smr_av->smr_map, id);
 		dlist_foreach(&util_av->ep_list, av_entry) {
-			util_ep = container_of(av_entry, struct util_ep, av_entry);
+			util_ep = container_of(av_entry, struct util_ep,
+					       av_entry);
 			smr_ep = container_of(util_ep, struct smr_ep, util_ep);
 			if (smr_av->smr_map.num_peers > 0)
 				smr_ep->region->max_sar_buf_per_peer =
-					SMR_MAX_PEERS /
-					smr_av->smr_map.num_peers;
+						SMR_MAX_PEERS /
+						smr_av->smr_map.num_peers;
 			else
 				smr_ep->region->max_sar_buf_per_peer =
-					SMR_BUF_BATCH_MAX;
+							SMR_BUF_BATCH_MAX;
 		}
 		smr_av->used--;
 	}
@@ -583,7 +580,8 @@ int smr_av_open(struct fid_domain *domain, struct fi_av_attr *attr,
 		goto out;
 	}
 
-	ret = ofi_av_init(util_domain, attr, &util_attr, &smr_av->util_av, context);
+	ret = ofi_av_init(util_domain, attr, &util_attr, &smr_av->util_av,
+			  context);
 	if (ret)
 		goto out;
 
@@ -606,4 +604,3 @@ out:
 	free(smr_av);
 	return ret;
 }
-

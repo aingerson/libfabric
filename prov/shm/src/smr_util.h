@@ -36,6 +36,7 @@
 #include "ofi.h"
 #include "ofi_atomic_queue.h"
 #include "ofi_xpmem.h"
+#include <pthread.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -61,10 +62,6 @@ extern "C" {
 #define SMR_OP_MAX (1 << 6)
 
 #define SMR_REMOTE_CQ_DATA	(1 << 0)
-#define SMR_RMA_REQ		(1 << 1)
-#define SMR_TX_COMPLETION	(1 << 2)
-#define SMR_RX_COMPLETION	(1 << 3)
-#define SMR_MULTI_RECV		(1 << 4)
 
 enum {
 	smr_proto_inline,	/* inline payload */
@@ -168,16 +165,14 @@ static_assert(sizeof(struct smr_cmd) == SMR_CMD_SIZE,
 #define SMR_COMP_INJECT_SIZE	(SMR_INJECT_SIZE / 2)
 #define SMR_SAR_SIZE		32768
 
-#define SMR_DIR "/dev/shm/"
+#define SMR_DIR		"/dev/shm/"
 #define SMR_NAME_MAX	256
 #define SMR_PATH_MAX	(SMR_NAME_MAX + sizeof(SMR_DIR))
 
-/* On next version update remove this struct to make id a bool in the smr_peer
- * remove name from smr_peer_data because it is unused.
- */
-struct smr_addr {
-	char		name[SMR_NAME_MAX];
-	int64_t		id;
+enum smr_sar_status {
+	SMR_SAR_FREE = 0,
+	SMR_SAR_BUSY,
+	SMR_SAR_READY,
 };
 
 struct smr_peer_data {
@@ -195,9 +190,9 @@ extern pthread_mutex_t ep_list_lock;
 struct smr_region;
 
 struct smr_ep_name {
-	char name[SMR_NAME_MAX];
-	struct smr_region *region;
-	struct dlist_entry entry;
+	char			name[SMR_NAME_MAX];
+	struct smr_region	*region;
+	struct dlist_entry	entry;
 };
 
 static inline const char *smr_no_prefix(const char *addr)
@@ -232,20 +227,17 @@ struct smr_region {
 	int			resv2;
 
 	uintptr_t		base_addr;
-	pthread_spinlock_t	lock; /* lock for shm access
-				 if both ep->tx_lock and this lock need to
-				 held, then ep->tx_lock needs to be held
-				 first */
 
-	size_t		total_size;
+	size_t			total_size;
 
 	/* offsets from start of smr_region */
-	size_t		cmd_queue_offset;
-	size_t		resp_queue_offset;
-	size_t		inject_pool_offset;
-	size_t		sar_pool_offset;
-	size_t		peer_data_offset;
-	size_t		name_offset;
+	size_t			cmd_queue_offset;
+	size_t			cmd_stack_offset;
+	size_t			inject_pool_offset;
+	size_t			ret_queue_offset;
+	size_t			sar_pool_offset;
+	size_t			peer_data_offset;
+	size_t			name_offset;
 };
 
 static inline void smr_set_vma_cap(uint8_t *vma_cap, uint8_t type, bool avail)
@@ -259,12 +251,6 @@ static inline uint8_t smr_get_vma_cap(uint8_t vma_cap, uint8_t type)
 	return vma_cap & (1 << type);
 }
 
-
-struct smr_resp {
-	uint64_t	msg_id;
-	uint64_t	status;
-};
-
 struct smr_inject_buf {
 	union {
 		uint8_t		data[SMR_INJECT_SIZE];
@@ -275,46 +261,42 @@ struct smr_inject_buf {
 	};
 };
 
-enum smr_status {
-	SMR_STATUS_SUCCESS = 0, 	/* success*/
-	SMR_STATUS_BUSY = FI_EBUSY, 	/* busy */
-
-	SMR_STATUS_OFFSET = 1024, 	/* Beginning of shm-specific codes */
-	SMR_STATUS_SAR_EMPTY, 	/* buffer can be written into */
-	SMR_STATUS_SAR_FULL, 	/* buffer can be read from */
-};
-
 struct smr_sar_buf {
 	uint8_t		buf[SMR_SAR_SIZE];
 };
 
-/* TODO it is expected that a future patch will expand the smr_cmd
- * structure to also include the rma information, thereby removing the
- * need to have two commands in the cmd_entry. We can also remove the
- * command entry completely and just use the smr_cmd
- */
 struct smr_cmd_entry {
-	struct smr_cmd cmd;
-	struct smr_cmd rma_cmd;
+	uintptr_t	ptr;
+	struct smr_cmd	cmd;
 };
+
+struct smr_return_entry {
+	uintptr_t ptr;
+};
+
+OFI_DECLARE_ATOMIC_Q(struct smr_cmd_entry, smr_cmd_queue);
+OFI_DECLARE_ATOMIC_Q(struct smr_return_entry, smr_return_queue);
 
 /* Queue of offsets of the command blocks obtained from the command pool
  * freestack
  */
-OFI_DECLARE_CIRQUE(struct smr_resp, smr_resp_queue);
-OFI_DECLARE_ATOMIC_Q(struct smr_cmd_entry, smr_cmd_queue);
-
 static inline struct smr_cmd_queue *smr_cmd_queue(struct smr_region *smr)
 {
 	return (struct smr_cmd_queue *) ((char *) smr + smr->cmd_queue_offset);
 }
-static inline struct smr_resp_queue *smr_resp_queue(struct smr_region *smr)
+static inline struct smr_freestack *smr_cmd_stack(struct smr_region *smr)
 {
-	return (struct smr_resp_queue *) ((char *) smr + smr->resp_queue_offset);
+	return (struct smr_freestack *) ((char *) smr + smr->cmd_stack_offset);
 }
-static inline struct smr_freestack *smr_inject_pool(struct smr_region *smr)
+static inline struct smr_inject_buf *smr_inject_pool(struct smr_region *smr)
 {
-	return (struct smr_freestack *) ((char *) smr + smr->inject_pool_offset);
+	return (struct smr_inject_buf *)
+			((char *) smr + smr->inject_pool_offset);
+}
+static inline struct smr_return_queue *smr_return_queue(struct smr_region *smr)
+{
+	return (struct smr_return_queue *)
+			((char *) smr + smr->ret_queue_offset);
 }
 static inline struct smr_peer_data *smr_peer_data(struct smr_region *smr)
 {
@@ -329,6 +311,13 @@ static inline const char *smr_name(struct smr_region *smr)
 	return (const char *) smr + smr->name_offset;
 }
 
+static inline struct smr_inject_buf *smr_get_inject_buf(struct smr_region *smr,
+							struct smr_cmd *cmd)
+{
+	return &smr_inject_pool(smr)[smr_freestack_get_index(smr_cmd_stack(smr),
+							     (char *) cmd)];
+}
+
 struct smr_attr {
 	const char	*name;
 	size_t		rx_count;
@@ -337,14 +326,16 @@ struct smr_attr {
 };
 
 size_t smr_calculate_size_offsets(size_t tx_count, size_t rx_count,
-				  size_t *cmd_offset, size_t *resp_offset,
-				  size_t *inject_offset, size_t *sar_offset,
-				  size_t *peer_offset, size_t *name_offset);
-void	smr_cma_check(struct smr_region *region, struct smr_region *peer_region);
-void	smr_cleanup(void);
-int	smr_create(const struct fi_provider *prov,
-		   const struct smr_attr *attr, struct smr_region *volatile *smr);
-void	smr_free(struct smr_region *smr);
+				  size_t *cmd_offset, size_t *cs_offset,
+				  size_t *inject_offset, size_t *rq_offset,
+				  size_t *sar_offset, size_t *peer_offset,
+				  size_t *name_offset);
+void smr_cma_check(struct smr_region *region,
+		   struct smr_region *peer_region);
+void smr_cleanup(void);
+int smr_create(const struct fi_provider *prov, const struct smr_attr *attr,
+	       struct smr_region *volatile *smr);
+void smr_free(struct smr_region *smr);
 
 #ifdef __cplusplus
 }
