@@ -79,6 +79,7 @@ static struct util_peer_addr *rxm_alloc_peer(struct rxm_av *av,
 	peer->av = av;
 	peer->index = (int) ofi_buf_index(peer);
 	peer->fi_addr = FI_ADDR_NOTAVAIL;
+	peer->shm_addr = FI_ADDR_NOTAVAIL;
 	peer->refcnt = 1;
 	memcpy(&peer->addr, addr, av->util_av.addrlen);
 	peer->firewall_addr = false;
@@ -169,6 +170,29 @@ static void rxm_put_peer_addr(struct rxm_av *av, fi_addr_t fi_addr)
 	rxm_set_av_context(av, fi_addr, NULL);
 }
 
+static void rxm_add_shm_addr(struct rxm_av *av, const void *addr,
+			     fi_addr_t rxm_addr, fi_addr_t *fi_addr)
+{
+	struct util_domain *domain;
+	char shm_name[OFI_ADDRSTRLEN];//change others to this
+	size_t shm_name_len = OFI_ADDRSTRLEN;
+	int ret;
+
+	domain = av->util_av.domain;
+
+	if (!ofi_equals_ipaddr((struct sockaddr *) addr,
+		(struct sockaddr *) domain->src_addr))
+		return;
+
+	ofi_straddr(shm_name, &shm_name_len, domain->addr_format,
+		    (void *) addr);
+	*fi_addr = rxm_addr;
+	ret = fi_av_insert(av->shm_av, shm_name, 1, fi_addr, FI_AV_USER_ID, NULL);
+	if (ret != 1) {
+		//warn
+	}
+}
+
 static int rxm_av_add_peers(struct rxm_av *av, const void *addr, size_t count,
 			    fi_addr_t *fi_addr, fi_addr_t *user_ids,
 			    uint64_t flags)
@@ -192,6 +216,9 @@ static int rxm_av_add_peers(struct rxm_av *av, const void *addr, size_t count,
 					  ofi_av_lookup_fi_addr(&av->util_av,
 								cur_addr);
 		}
+		if (av->util_av.domain->src_addr)
+			rxm_add_shm_addr(av, cur_addr, peer->fi_addr,
+					 &peer->shm_addr);
 
 		/* lookup can fail if prior AV insertion failed */
 		if (peer->fi_addr != FI_ADDR_NOTAVAIL)
@@ -406,9 +433,13 @@ static int rxm_av_close(struct fid *av_fid)
 	if (av->offload_coll_av)
 		fi_close((fid_t) av->offload_coll_av);
 
+	if (av->shm_av)
+		ret = fi_close(&av->shm_av->fid);
+
 	ret = ofi_av_close(&av->util_av);
 	if (ret)
 		return ret;
+
 
 	ofi_rbmap_cleanup(&av->addr_map);
 	ofi_bufpool_destroy(av->conn_pool);
