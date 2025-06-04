@@ -412,8 +412,6 @@ int smr_select_proto(void **desc, size_t iov_count, bool vma_avail,
 	}
 
 	if (op == ofi_op_read_req) {
-		if (total_len <= SMR_INJECT_SIZE)
-			return smr_proto_inject;
 		if (use_ipc)
 			return smr_proto_ipc;
 		if (vma_avail && FI_HMEM_SYSTEM == iface)
