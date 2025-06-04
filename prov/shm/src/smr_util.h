@@ -110,7 +110,7 @@ struct smr_cmd_hdr {
 	uint8_t			op;
 	uint8_t			proto;
 	uint8_t			op_flags;
-	uint8_t			resv[1];
+	uint8_t			resv;
 };
 
 #ifdef static_assert
@@ -317,8 +317,15 @@ static inline const char *smr_name(struct smr_region *smr)
 static inline struct smr_inject_buf *smr_get_inject_buf(struct smr_region *smr,
 							struct smr_cmd *cmd)
 {
-	return &smr_inject_pool(smr)[smr_freestack_get_index(smr_cmd_stack(smr),
-							     (char *) cmd)];
+	struct smr_inject_buf *buf;
+
+	buf = &smr_inject_pool(smr)[smr_freestack_get_index(smr_cmd_stack(smr),
+							    (char *) cmd)];
+
+	assert(buf >= smr_inject_pool(smr) &&
+	       buf < smr_inject_pool(smr) + SMR_INJECT_SIZE * 1024);
+
+	return buf;
 }
 
 struct smr_attr {

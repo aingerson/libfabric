@@ -47,7 +47,7 @@ static void smr_progress_overflow(struct smr_ep *ep)
 	entry = ep->overflow_list.head;
 	while (entry) {
 		cmd = (struct smr_cmd *) entry;
-		peer_smr = smr_peer_region(ep, cmd->hdr.tx_id);
+		peer_smr = smr_peer_region(ep, (int64_t) cmd->hdr.tx_id);
 		ret = smr_cmd_queue_next(smr_cmd_queue(peer_smr), &ce, &pos);
 		if (ret == -FI_ENOENT)
 			return;
@@ -159,6 +159,10 @@ static int smr_progress_return_entry(struct smr_ep *ep, struct smr_cmd *cmd,
 				pend->bytes_done =
 					(size_t) hmem_copy_ret;
 			}
+		} else {
+			assert(cmd->hdr.op != ofi_op_atomic_compare &&
+			       cmd->hdr.op != ofi_op_atomic_fetch &&
+			       cmd->hdr.op != ofi_op_read_req);
 		}
 		break;
 	default:
@@ -246,8 +250,11 @@ static ssize_t smr_progress_inject(struct smr_ep *ep, struct smr_cmd *cmd,
 	struct smr_inject_buf *tx_buf;
 	ssize_t ret;
 
-	peer_smr = smr_peer_region(ep, cmd->hdr.rx_id);
+	peer_smr = smr_peer_region(ep, (int64_t) cmd->hdr.rx_id);
 	tx_buf = smr_get_inject_buf(peer_smr, cmd);
+
+	assert((uintptr_t) tx_buf ==
+		(uintptr_t) &smr_inject_pool(peer_smr)[cmd->hdr.resv]);
 
 	if (cmd->hdr.op == ofi_op_read_req) {
 		ret = ofi_copy_from_mr_iov(tx_buf->data, cmd->hdr.size, mr,
@@ -664,10 +671,14 @@ static int smr_progress_inject_atomic(struct smr_cmd *cmd, struct ofi_mr **mr,
 				      size_t *len, struct smr_ep *ep)
 {
 	struct smr_inject_buf *tx_buf;
+	struct smr_region *peer_smr;
 	uint8_t *src, *comp;
 	int i;
 
-	tx_buf = smr_get_inject_buf(smr_peer_region(ep, cmd->hdr.rx_id), cmd);
+	peer_smr = smr_peer_region(ep, cmd->hdr.rx_id);
+	tx_buf = smr_get_inject_buf(peer_smr, cmd);
+
+	assert((uintptr_t) tx_buf == (uintptr_t) &smr_inject_pool(peer_smr)[cmd->hdr.resv]);
 
 	switch (cmd->hdr.op) {
 	case ofi_op_atomic_compare:
@@ -865,6 +876,7 @@ static void smr_progress_connreq(struct smr_ep *ep, struct smr_cmd *cmd)
 		SMR_BUF_BATCH_MAX,
 		SMR_MAX_PEERS / ep->map->num_peers);
 
+	ofi_wmb();
 	//set last to indicate to peer that setup is complete
 	smr_peer_data(peer_smr)[cmd->hdr.tx_id].id = idx;
 out:

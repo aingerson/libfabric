@@ -83,6 +83,9 @@ static void smr_format_inject_atomic(
 	cmd->hdr.proto = smr_proto_inject;
 
 	tx_buf = smr_get_inject_buf(smr, cmd);
+
+	cmd->hdr.resv = smr_freestack_get_index(smr_cmd_stack(smr), (char *) cmd);
+
 	switch (cmd->hdr.op) {
 	case ofi_op_atomic:
 		cmd->hdr.size = ofi_copy_from_mr_iov(

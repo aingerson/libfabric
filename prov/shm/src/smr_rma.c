@@ -106,15 +106,16 @@ static inline bool smr_do_fast_rma(struct smr_ep *ep, uint64_t op_flags,
 				   size_t rma_count, size_t total_len,
 				   struct smr_region *peer_smr)
 {
-	struct smr_domain *domain;
+	// struct smr_domain *domain;
 
-	domain = container_of(ep->util_ep.domain, struct smr_domain,
-			      util_domain);
+	// domain = container_of(ep->util_ep.domain, struct smr_domain,
+	// 		      util_domain);
 
-	return domain->fast_rma && !(op_flags &
-		    (FI_REMOTE_CQ_DATA | FI_DELIVERY_COMPLETE)) &&
-		     rma_count == 1 && smr_vma_enabled(ep, peer_smr) &&
-		     total_len > SMR_INJECT_SIZE;
+	return false;
+	// return domain->fast_rma && !(op_flags &
+	// 	    (FI_REMOTE_CQ_DATA | FI_DELIVERY_COMPLETE)) &&
+	// 	     rma_count == 1 && smr_vma_enabled(ep, peer_smr) &&
+	// 	     total_len > SMR_INJECT_SIZE;
 
 }
 

@@ -278,6 +278,8 @@ static void smr_format_inject(struct smr_ep *ep, struct smr_cmd *cmd,
 		cmd->hdr.size = ofi_total_iov_len(pend->iov, pend->iov_count);
 		pend->bytes_done = 0;
 	}
+
+	cmd->hdr.resv = smr_freestack_get_index(smr_cmd_stack(ep->region), (char *) cmd);
 }
 
 static void smr_format_iov(struct smr_cmd *cmd, struct smr_pend_entry *pend)
@@ -936,7 +938,8 @@ static int smr_create_pools(struct smr_ep *ep, struct fi_info *info)
 
 	ret = ofi_bufpool_create(&ep->pend_pool,
 				 sizeof(struct smr_pend_entry),
-				 16, 0, ep->tx_size, OFI_BUFPOOL_NO_TRACK);
+				 16, info->tx_attr->size + info->rx_attr->size,
+				 ep->tx_size, OFI_BUFPOOL_NO_TRACK);
 	if (ret)
 		goto free1;
 
