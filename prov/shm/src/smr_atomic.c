@@ -117,14 +117,14 @@ static void smr_format_inject_atomic(
 }
 
 static ssize_t smr_do_atomic_inject(
-			struct smr_ep *ep, struct smr_region *peer_smr,
-			int64_t tx_id, int64_t rx_id, uint32_t op,
-			uint64_t op_flags, uint8_t datatype, uint8_t atomic_op,
-			struct ofi_mr **desc, const struct iovec *iov,
-			size_t iov_count, struct ofi_mr **res_desc,
-			const struct iovec *resultv, size_t result_count,
-			struct ofi_mr **comp_desc, const struct iovec *compv,
-			size_t comp_count, void *context, struct smr_cmd *cmd)
+			struct smr_ep *ep, int64_t tx_id, int64_t rx_id,
+			uint32_t op, uint64_t op_flags, uint8_t datatype,
+			uint8_t atomic_op, struct ofi_mr **desc,
+			const struct iovec *iov, size_t iov_count,
+			struct ofi_mr **res_desc, const struct iovec *resultv,
+			size_t result_count, struct ofi_mr **comp_desc,
+			const struct iovec *compv, size_t comp_count,
+			void *context, struct smr_cmd *cmd)
 {
 	struct smr_pend_entry *pend;
 
@@ -243,8 +243,8 @@ static ssize_t smr_generic_atomic(
 		assert(cmd);
 		ce->ptr = smr_local_to_peer(ep, peer_smr, tx_id, rx_id,
 					    (uintptr_t) cmd);
-		ret = smr_do_atomic_inject(ep, peer_smr, tx_id, rx_id, op,
-					   op_flags, datatype, atomic_op,
+		ret = smr_do_atomic_inject(ep, tx_id, rx_id, op, op_flags,
+					   datatype, atomic_op,
 					   (struct ofi_mr **) desc, iov, count,
 					   (struct ofi_mr **) result_desc,
 					   result_iov, result_count,
@@ -395,10 +395,9 @@ static ssize_t smr_atomic_inject(
 		assert(cmd);
 		ce->ptr = smr_local_to_peer(ep, peer_smr, id, peer_id,
 					    (uintptr_t) cmd);
-		ret = smr_do_atomic_inject(ep, peer_smr, id, peer_id,
-					   ofi_op_atomic, 0, datatype, op, NULL,
-					   &iov, 1, NULL, NULL, 0, NULL, NULL,
-					   0, NULL, cmd);
+		ret = smr_do_atomic_inject(ep, id, peer_id, ofi_op_atomic, 0,
+					   datatype, op, NULL, &iov, 1, NULL,
+					   NULL, 0, NULL, NULL, 0, NULL, cmd);
 		if (ret) {
 			smr_cmd_queue_discard(ce, pos);
 			goto unlock;
