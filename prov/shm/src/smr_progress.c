@@ -1211,6 +1211,7 @@ static int smr_progress_cmd_rma(struct smr_ep *ep, struct smr_cmd *cmd)
 		goto out;
 	}
 
+out:
 	if (ret) {
 		FI_WARN(&smr_prov, FI_LOG_EP_CTRL,
 			"error processing rma op\n");
@@ -1229,7 +1230,6 @@ static int smr_progress_cmd_rma(struct smr_ep *ep, struct smr_cmd *cmd)
 			"unable to process rx completion\n");
 	}
 
-out:
 	if (return_cmd)
 		smr_return_cmd(ep, cmd);
 	return ret;
@@ -1251,14 +1251,14 @@ static int smr_progress_cmd_atomic(struct smr_ep *ep, struct smr_cmd *cmd)
 	ofi_genlock_lock(&domain->util_domain.lock);
 	for (ioc_count = 0; ioc_count < cmd->rma.rma_count; ioc_count++) {
 		rma_ioc = &cmd->rma.rma_ioc[ioc_count];
-		ret = ofi_mr_map_verify(&domain->util_domain.mr_map,
+		err = ofi_mr_map_verify(&domain->util_domain.mr_map,
 					(uintptr_t *) &(rma_ioc->addr),
 					rma_ioc->count * dt_size,
 					rma_ioc->key,
 					ofi_rx_mr_reg_flags(cmd->hdr.op,
 							    cmd->hdr.atomic_op),
 					(void **) &mr[ioc_count]);
-		if (ret)
+		if (err)
 			break;
 
 		ioc[ioc_count].addr = (void *) rma_ioc->addr;
@@ -1266,7 +1266,7 @@ static int smr_progress_cmd_atomic(struct smr_ep *ep, struct smr_cmd *cmd)
 	}
 	ofi_genlock_unlock(&domain->util_domain.lock);
 
-	if (ret)
+	if (err)
 		goto out;
 
 	switch (cmd->hdr.proto) {
@@ -1283,6 +1283,8 @@ static int smr_progress_cmd_atomic(struct smr_ep *ep, struct smr_cmd *cmd)
 			"unidentified operation type\n");
 		err = -FI_EINVAL;
 	}
+
+out:
 	cmd->hdr.status = -err;
 
 	if (err) {
@@ -1304,7 +1306,6 @@ static int smr_progress_cmd_atomic(struct smr_ep *ep, struct smr_cmd *cmd)
 		err = ret;
 	}
 
-out:
 	if (cmd->hdr.proto != smr_proto_inline)
 		smr_return_cmd(ep, cmd);
 	return err;
