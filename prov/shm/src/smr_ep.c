@@ -232,6 +232,8 @@ void smr_format_tx_pend(struct smr_pend_entry *pend, struct smr_cmd *cmd,
 	pend->cmd = cmd;
 	pend->comp_ctx = context;
 	pend->comp_flags = op_flags;
+	//TODO see if passing in total_size is faster
+	pend->total_size = ofi_total_iov_len(iov, iov_count);
 
 	memcpy(pend->iov, iov, sizeof(*iov) * iov_count);
 	pend->iov_count = iov_count;
@@ -255,6 +257,7 @@ void smr_generic_format(struct smr_cmd *cmd, int64_t tx_id, int64_t rx_id,
 	cmd->hdr.rx_id = rx_id;
 	cmd->hdr.cq_data = data;
 	cmd->hdr.rx_ctx = 0;
+	cmd->hdr.iov_idx = 0;
 
 	if (op_flags & FI_REMOTE_CQ_DATA)
 		cmd->hdr.op_flags |= SMR_REMOTE_CQ_DATA;
@@ -296,9 +299,9 @@ static void smr_format_iov(struct smr_cmd *cmd, struct smr_pend_entry *pend)
 	memcpy(cmd->data.iov, pend->iov, sizeof(*pend->iov) * pend->iov_count);
 }
 
-static int smr_format_ipc(struct smr_cmd *cmd, void *ptr, size_t len,
-			  struct smr_region *smr,
-			  enum fi_hmem_iface iface, uint64_t device)
+int smr_format_ipc(struct smr_cmd *cmd, void *ptr, size_t len,
+		   struct smr_region *smr, enum fi_hmem_iface iface,
+		   uint64_t device)
 {
 	int ret;
 	void *base;
@@ -422,7 +425,8 @@ int smr_select_proto(void **desc, size_t iov_count, bool vma_avail,
 			return smr_proto_inject;
 		if (use_ipc)
 			return smr_proto_ipc;
-		if (vma_avail && FI_HMEM_SYSTEM == iface)
+		if (vma_avail && FI_HMEM_SYSTEM == iface &&
+		    ofi_mr_all_host(&smr_desc, iov_count))
 			return smr_proto_iov;
 		return smr_proto_sar;
 	}
@@ -441,7 +445,10 @@ int smr_select_proto(void **desc, size_t iov_count, bool vma_avail,
 	if (use_ipc)
 		return smr_proto_ipc;
 
-	return vma_avail ? smr_proto_iov: smr_proto_sar;
+	if (vma_avail && ofi_mr_all_host(&smr_desc, iov_count))
+		return smr_proto_iov;
+
+	return smr_proto_sar;
 }
 
 static ssize_t smr_do_inline(struct smr_ep *ep, struct smr_region *peer_smr,
@@ -814,7 +821,7 @@ create_shm:
 				goto create_shm;
 		}
 
-		if (ep->util_ep.caps & FI_HMEM || smr_env.disable_cma) {
+		if (smr_env.disable_cma) {
 			smr_set_vma_cap(&ep->region->peer_vma_caps,
 					FI_SHM_P2P_CMA, false);
 			smr_set_vma_cap(&ep->region->self_vma_caps,

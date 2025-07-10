@@ -195,6 +195,8 @@ struct smr_pend_entry {
 	size_t				iov_count;
 	struct ofi_mr			*mr[SMR_IOV_LIMIT];
 	size_t				bytes_done;
+	size_t				total_size;
+	uint64_t			iov_idx;
 	void				*comp_ctx;
 	uint64_t			comp_flags;
 	int				sar_dir;
@@ -273,6 +275,9 @@ void smr_format_tx_pend(struct smr_pend_entry *pend, struct smr_cmd *cmd,
 void smr_generic_format(struct smr_cmd *cmd, int64_t tx_id, int64_t rx_id,
 			uint32_t op, uint64_t tag, uint64_t data,
 			uint64_t op_flags);
+int smr_format_ipc(struct smr_cmd *cmd, void *ptr, size_t len,
+		   struct smr_region *smr, enum fi_hmem_iface iface,
+		   uint64_t device);
 size_t smr_copy_to_sar(struct smr_ep *ep, struct smr_region *smr,
 		       struct smr_pend_entry *pend);
 size_t smr_copy_from_sar(struct smr_ep *ep, struct smr_region *smr,
