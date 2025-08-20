@@ -48,7 +48,7 @@
 
 enum {
 	OFI_LOG_SUBSYS_MAX = 10,
-	OFI_LOG_MAX = 4
+	OFI_LOG_MAX = 5
 };
 
 static const char * const log_subsys[] = {
@@ -65,6 +65,7 @@ static const char * const log_subsys[] = {
 };
 
 static const char * const log_levels[] = {
+	[FI_LOG_TEST] = "test",
 	[FI_LOG_WARN] = "warn",
 	[FI_LOG_TRACE] = "trace",
 	[FI_LOG_INFO] = "info",

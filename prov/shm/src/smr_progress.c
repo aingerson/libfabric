@@ -317,6 +317,13 @@ static int smr_progress_iov(struct smr_cmd *cmd, struct iovec *iov,
 
 	xpmem = &smr_peer_data(ep->region)[cmd->msg.hdr.id].xpmem;
 
+	FI_TEST(&smr_prov, FI_LOG_EP_CTRL,
+		"Recv CMA from peer id %ld (pid %d): local -- count=%lu, addr[0]=%p \t "
+		"remote -- count %lu, addr[0]=%p, len[0]=%lu\n",
+		cmd->msg.hdr.id, peer_smr->pid, iov_count, iov_count ? iov[0].iov_base : NULL,
+		cmd->msg.data.iov_count,
+		cmd->msg.data.iov_count ? cmd->msg.data.iov[0].iov_base : NULL,
+		cmd->msg.data.iov_count ? cmd->msg.data.iov[0].iov_len : 0);
 	ret = ofi_shm_p2p_copy(ep->p2p_type, iov, iov_count, cmd->msg.data.iov,
 			       cmd->msg.data.iov_count, cmd->msg.hdr.size,
 			       peer_smr->pid, cmd->msg.hdr.op == ofi_op_read_req,
@@ -767,6 +774,9 @@ static int smr_start_common(struct smr_ep *ep, struct smr_cmd *cmd,
 		if (err) {
 			FI_WARN(&smr_prov, FI_LOG_EP_CTRL,
 				"error processing op\n");
+			FI_TEST(&smr_prov, FI_LOG_EP_CTRL,
+				"error processing op %d, size %lu\n",
+				cmd->msg.hdr.op, cmd->msg.hdr.size);
 			ret = smr_write_err_comp(ep->util_ep.rx_cq,
 						 rx_entry->context,
 						 comp_flags, rx_entry->tag,
@@ -991,6 +1001,10 @@ static int smr_progress_cmd_msg(struct smr_ep *ep, struct smr_cmd *cmd)
 	attr.msg_size = cmd->msg.hdr.size;
 	attr.tag = cmd->msg.hdr.tag;
 	if (cmd->msg.hdr.op == ofi_op_tagged) {
+		if (attr.msg_size > 1000) {
+			FI_TEST(&smr_prov, FI_LOG_EP_CTRL,
+				"get_tag size %lu\n", attr.msg_size);
+		}
 		ret = ep->srx->owner_ops->get_tag(ep->srx, &attr, &rx_entry);
 		if (ret == -FI_ENOENT) {
 			ret = smr_alloc_cmd_ctx(ep, rx_entry, cmd);

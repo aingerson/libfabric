@@ -57,8 +57,16 @@ static inline int cma_copy(struct iovec *local, unsigned long local_cnt,
 		if (ret < 0) {
 			FI_WARN(&core_prov, FI_LOG_CORE,
 				"CMA error %d\n", errno);
+			FI_TEST(&core_prov, FI_LOG_CORE,
+				"local: %p, local_cnt: %lu, local[0].iov_base: %p, local[0].iov_len: %lu "
+				"--- remote: %p, remote_cnt: %lu, remote[0].iov_base: %p, remote[0].iov_len: %lu\n",
+				local, local_cnt, local[0].iov_base, local[0].iov_len,
+				remote, remote_cnt, remote[0].iov_base, remote[0].iov_len);
 			return -FI_EIO;
 		}
+		FI_TEST(&core_prov, FI_LOG_CORE,
+			"CMA %s: copied %zd bytes, remaining - %zu bytes\n",
+			write ? "write" : "read", ret, total);
 
 		total -= ret;
 		if (!total)

@@ -667,6 +667,28 @@ static ssize_t util_srx_peek(struct util_srx_ctx *srx, const struct iovec *iov,
 			    rx_entry->peer_entry.tag);
 }
 
+static uint64_t util_test_iov_buf(const struct iovec *iov, size_t count, size_t total_len)
+{
+	size_t i, j, total;
+	uint8_t val, *buf;
+	uint64_t total_val;
+
+	total = 0;
+	total_val = 0;
+	for (i = 0; i < count; i++) {
+		buf = (uint8_t *) iov[i].iov_base;
+		for (j = 0; j < iov[i].iov_len; j++) {
+			val = ((volatile uint8_t *) buf)[j];
+			total++;
+			total_val += val;
+		}
+	}
+	FI_TEST(&core_prov, FI_LOG_EP_DATA,
+		"pid %d: rx touched %zu/%zu bytes in iov\n",
+		getpid(), total, total_len);
+	return total_val;
+}
+
 ssize_t util_srx_generic_trecv(struct fid_ep *ep_fid, const struct iovec *iov,
 			       void **desc, size_t iov_count, fi_addr_t addr,
 			       void *context, uint64_t tag, uint64_t ignore,
@@ -709,6 +731,13 @@ ssize_t util_srx_generic_trecv(struct fid_ep *ep_fid, const struct iovec *iov,
 		rx_entry = (struct util_rx_entry *)
 				(((struct fi_context *) context)->internal[0]);
 	} else {
+		if (iov && &iov[0] && iov[0].iov_len >= 1000) {
+			FI_TEST(&core_prov, FI_LOG_EP_CTRL,
+				"post trecv iov count=%lu, addr[0]=%p, len[0]=%lu\n",
+				iov_count, iov[0].iov_base, iov[0].iov_len);
+			(void) util_test_iov_buf(iov, iov_count,
+					         ofi_total_iov_len(iov, iov_count));
+		}
 		rx_entry = util_search_unexp_tag(srx, addr, tag, ignore, true);
 		if (!rx_entry) {
 			queue = addr == FI_ADDR_UNSPEC ? &srx->tag_queue:

@@ -643,6 +643,28 @@ static ssize_t smr_do_inject(struct smr_ep *ep, struct smr_region *peer_smr, int
 	return FI_SUCCESS;
 }
 
+static uint64_t smr_test_iov_buf(const struct iovec *iov, size_t count, size_t total_len)
+{
+	size_t i, j, total;
+	uint8_t val, *buf;
+	uint64_t total_val;
+
+	total = 0;
+	total_val = 0;
+	for (i = 0; i < count; i++) {
+		buf = (uint8_t *) iov[i].iov_base;
+		for (j = 0; j < iov[i].iov_len; j++) {
+			val = ((volatile uint8_t *) buf)[j];
+			total++;
+			total_val += val;
+		}
+	}
+	FI_TEST(&smr_prov, FI_LOG_EP_DATA,
+		"pid %d: tx touched %zu/%zu bytes in iov\n",
+		getpid(), total, total_len);
+	return total_val;
+}
+
 static ssize_t smr_do_iov(struct smr_ep *ep, struct smr_region *peer_smr, int64_t id,
 			  int64_t peer_id, uint32_t op, uint64_t tag, uint64_t data,
 			  uint64_t op_flags, struct ofi_mr **desc,
@@ -658,6 +680,11 @@ static ssize_t smr_do_iov(struct smr_ep *ep, struct smr_region *peer_smr, int64_
 	resp = ofi_cirque_next(smr_resp_queue(ep->region));
 	pend = ofi_freestack_pop(ep->tx_fs);
 
+	FI_TEST(&smr_prov, FI_LOG_EP_CTRL,
+		"pid %d: send CMA to peer id %ld: count=%lu, addr[0]=%p, len[0]=%lu\n",
+		getpid(), id, iov_count, iov_count ? iov[0].iov_base : NULL,
+		iov_count ? iov[0].iov_len : 0);
+	(void) smr_test_iov_buf(iov, iov_count, total_len);
 	smr_generic_format(cmd, peer_id, op, tag, data, op_flags);
 	smr_format_iov(cmd, iov, iov_count, total_len, ep->region, resp);
 	smr_format_pend_resp(pend, cmd, context, desc, iov,
