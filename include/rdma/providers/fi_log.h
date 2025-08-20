@@ -56,6 +56,7 @@ enum fi_log_subsys {
 };
 
 enum fi_log_level {
+	FI_LOG_TEST,
 	FI_LOG_WARN,
 	FI_LOG_TRACE,
 	FI_LOG_INFO,
@@ -101,6 +102,9 @@ void fi_log(const struct fi_provider *prov, enum fi_log_level level,
 
 #define FI_INFO(prov, subsystem, ...)					\
 	FI_LOG(prov, FI_LOG_INFO, subsystem, __VA_ARGS__)
+
+#define FI_TEST(prov, subsystem, ...)					\
+	FI_LOG(prov, FI_LOG_TEST, subsystem, __VA_ARGS__)
 
 #if defined(ENABLE_DEBUG) && ENABLE_DEBUG
 #define FI_DBG(prov, subsystem, ...)					\

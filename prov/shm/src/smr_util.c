@@ -411,6 +411,9 @@ int smr_map_to_region(const struct fi_provider *prov, struct smr_map *map,
 	peer = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
 	peer_buf->region = peer;
 
+	FI_TEST(&smr_prov, FI_LOG_AV,
+		"Mapped peer id %ld (pid %d)\n", id, peer->pid);
+
 	if (map->flags & SMR_FLAG_HMEM_ENABLED) {
 		ret = ofi_hmem_host_register(peer, peer->total_size);
 		if (ret)

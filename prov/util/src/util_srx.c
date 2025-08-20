@@ -709,6 +709,9 @@ ssize_t util_srx_generic_trecv(struct fid_ep *ep_fid, const struct iovec *iov,
 		rx_entry = (struct util_rx_entry *)
 				(((struct fi_context *) context)->internal[0]);
 	} else {
+		FI_TEST(&core_prov, FI_LOG_EP_CTRL,
+			"post trecv iov count=%lu, addr[0]=%p, len[0]=%lu\n",
+			iov_count, iov[0].iov_base, iov[0].iov_len);
 		rx_entry = util_search_unexp_tag(srx, addr, tag, ignore, true);
 		if (!rx_entry) {
 			queue = addr == FI_ADDR_UNSPEC ? &srx->tag_queue:

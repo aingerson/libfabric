@@ -317,6 +317,12 @@ static int smr_progress_iov(struct smr_cmd *cmd, struct iovec *iov,
 
 	xpmem = &smr_peer_data(ep->region)[cmd->msg.hdr.id].xpmem;
 
+	FI_TEST(&smr_prov, FI_LOG_EP_CTRL,
+		"Recv CMA from peer id %ld (pid %d): local -- count=%lu, addr[0]=%p \t "
+		"remote -- count %lu, addr[0]=%p\n",
+		cmd->msg.hdr.id, peer_smr->pid, iov_count, iov_count ? iov[0].iov_base : NULL,
+		cmd->msg.data.iov_count,
+		cmd->msg.data.iov_count ? cmd->msg.data.iov[0].iov_base : NULL);
 	ret = ofi_shm_p2p_copy(ep->p2p_type, iov, iov_count, cmd->msg.data.iov,
 			       cmd->msg.data.iov_count, cmd->msg.hdr.size,
 			       peer_smr->pid, cmd->msg.hdr.op == ofi_op_read_req,
@@ -767,6 +773,9 @@ static int smr_start_common(struct smr_ep *ep, struct smr_cmd *cmd,
 		if (err) {
 			FI_WARN(&smr_prov, FI_LOG_EP_CTRL,
 				"error processing op\n");
+			FI_TEST(&smr_prov, FI_LOG_EP_CTRL,
+				"error processing op %d, size %lu\n",
+				cmd->msg.hdr.op, cmd->msg.hdr.size);
 			ret = smr_write_err_comp(ep->util_ep.rx_cq,
 						 rx_entry->context,
 						 comp_flags, rx_entry->tag,

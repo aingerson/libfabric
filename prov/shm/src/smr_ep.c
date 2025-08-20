@@ -658,6 +658,10 @@ static ssize_t smr_do_iov(struct smr_ep *ep, struct smr_region *peer_smr, int64_
 	resp = ofi_cirque_next(smr_resp_queue(ep->region));
 	pend = ofi_freestack_pop(ep->tx_fs);
 
+	FI_TEST(&smr_prov, FI_LOG_EP_CTRL,
+		"pid %d: send CMA to peer id %ld: count=%lu, addr[0]=%p, len[0]=%lu\n",
+		getpid(), id, iov_count, iov_count ? iov[0].iov_base : NULL,
+		iov_count ? iov[0].iov_len : 0);
 	smr_generic_format(cmd, peer_id, op, tag, data, op_flags);
 	smr_format_iov(cmd, iov, iov_count, total_len, ep->region, resp);
 	smr_format_pend_resp(pend, cmd, context, desc, iov,
