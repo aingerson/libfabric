@@ -107,7 +107,7 @@ size_t smr_calculate_size_offsets(size_t tx_count, size_t rx_count,
 	inject_pool_offset = cmd_stack_offset +
 		freestack_size(sizeof(struct smr_cmd), tx_size);
 	ret_queue_offset = inject_pool_offset + sizeof(struct smr_inject_buf) *
-		tx_size;
+		rx_size;
 	ret_queue_offset = ofi_get_aligned_size(ret_queue_offset, 64);
 	sar_pool_offset = ret_queue_offset + sizeof(struct smr_return_queue) +
 		sizeof(struct smr_return_queue_entry) * tx_size;
