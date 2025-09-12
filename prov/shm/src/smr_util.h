@@ -71,6 +71,7 @@ enum {
 	smr_proto_iov,		/* iovec copy via CMA or xpmem */
 	smr_proto_sar,		/* segmentation fallback */
 	smr_proto_ipc,		/* device IPC handle */
+	smr_proto_hmem_fallback,/* fallback for hmem transfers */
 	smr_proto_max,
 };
 
@@ -110,7 +111,7 @@ struct smr_cmd_hdr {
 	uint8_t			op;
 	uint8_t			proto;
 	uint8_t			op_flags;
-	uint8_t			resv[1];
+	uint8_t			iov_idx;
 };
 
 #ifdef static_assert
@@ -260,6 +261,7 @@ struct smr_inject_buf {
 			uint8_t	buf[SMR_COMP_INJECT_SIZE];
 			uint8_t comp[SMR_COMP_INJECT_SIZE];
 		};
+		struct ipc_info	ipc_info[SMR_IOV_LIMIT];
 	};
 };
 
