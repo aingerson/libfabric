@@ -260,12 +260,10 @@ static void smr_format_inline(struct smr_cmd *cmd, struct ofi_mr **mr,
 					     mr, iov, count, 0);
 }
 
-static void smr_format_inject(struct smr_ep *ep, struct smr_cmd *cmd,
-			      struct smr_pend_entry *pend)
+static void smr_format_inject(struct smr_ep *ep, struct smr_region *peer_smr,
+			      struct smr_cmd *cmd, struct smr_pend_entry *pend)
 {
-	struct smr_inject_buf *tx_buf;
-
-	tx_buf = smr_get_inject_buf(ep->region, cmd);
+	struct smr_inject_buf *tx_buf = smr_get_inject_buf(peer_smr, cmd);
 
 	cmd->hdr.proto = smr_proto_inject;
 	if (cmd->hdr.op != ofi_op_read_req) {
@@ -466,7 +464,7 @@ static ssize_t smr_do_inject(struct smr_ep *ep, struct smr_region *peer_smr,
 	smr_format_tx_pend(pend, cmd, context, desc, iov, iov_count, op_flags);
 
 	smr_generic_format(cmd, tx_id, rx_id, op, tag, data, op_flags);
-	smr_format_inject(ep, cmd, pend);
+	smr_format_inject(ep, peer_smr, cmd, pend);
 
 	if (smr_freestack_avail(smr_cmd_stack(ep->region)) <=
 	    smr_env.buffer_threshold)

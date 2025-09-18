@@ -316,8 +316,9 @@ static inline const char *smr_name(struct smr_region *smr)
 static inline struct smr_inject_buf *smr_get_inject_buf(struct smr_region *smr,
 							struct smr_cmd *cmd)
 {
-	return &smr_inject_pool(smr)[smr_freestack_get_index(smr_cmd_stack(smr),
-							     (char *) cmd)];
+	struct smr_cmd_entry *ce = container_of(cmd, struct smr_cmd_entry, cmd);
+	int idx = smr_cmd_queue_get_buf_idx(smr_cmd_queue(smr), ce);
+	return &smr_inject_pool(smr)[idx];
 }
 
 struct smr_attr {

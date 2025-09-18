@@ -242,12 +242,10 @@ static ssize_t smr_progress_inject(struct smr_ep *ep, struct smr_cmd *cmd,
 				   struct ofi_mr **mr, struct iovec *iov,
 				   size_t iov_count)
 {
-	struct smr_region *peer_smr;
 	struct smr_inject_buf *tx_buf;
 	ssize_t ret;
 
-	peer_smr = smr_peer_region(ep, cmd->hdr.rx_id);
-	tx_buf = smr_get_inject_buf(peer_smr, cmd);
+	tx_buf = smr_get_inject_buf(ep->region, cmd);
 
 	if (cmd->hdr.op == ofi_op_read_req) {
 		ret = ofi_copy_from_mr_iov(tx_buf->data, cmd->hdr.size, mr,
@@ -703,7 +701,8 @@ static int smr_start_common(struct smr_ep *ep, struct smr_cmd *cmd,
 	uint64_t comp_flags;
 	void *comp_buf;
 	int ret;
-	bool return_cmd = cmd->hdr.proto != smr_proto_inline;
+	bool return_cmd = cmd->hdr.proto != smr_proto_inline &&
+			  cmd->hdr.proto != smr_proto_inject;
 
 	rx_entry->peer_context = NULL;
 	assert (cmd->hdr.proto < smr_proto_max);
@@ -884,33 +883,21 @@ static int smr_unexp_inline(struct smr_ep *ep, struct smr_cmd_ctx *cmd_ctx,
 static int smr_unexp_inject(struct smr_ep *ep, struct smr_cmd_ctx *cmd_ctx,
 			    struct smr_cmd *cmd)
 {
-	struct smr_region *peer_smr;
 	struct smr_unexp_buf *buf;
 	struct smr_inject_buf *tx_buf;
 	int ret = FI_SUCCESS;
 
-	if (!(cmd->hdr.op_flags & SMR_BUFFER_RECV)) {
-		cmd_ctx->cmd = cmd;
-		return FI_SUCCESS;
-	}
-
-	peer_smr = smr_peer_region(ep, cmd_ctx->cmd->hdr.rx_id);
-
+	cmd_ctx->cmd->hdr.op_flags |= SMR_BUFFER_RECV;
 	memcpy(&cmd_ctx->cmd_cpy, cmd, sizeof(cmd_ctx->cmd->hdr));
 	cmd_ctx->cmd = &cmd_ctx->cmd_cpy;
 
 	buf = ofi_buf_alloc(ep->unexp_buf_pool);
-	if (!buf) {
-		ret = -FI_ENOMEM;
-		cmd->hdr.status = ret;
-		goto out;
-	}
+	if (!buf)
+		return -FI_ENOMEM;
 
-	tx_buf = smr_get_inject_buf(peer_smr, cmd);
+	tx_buf = smr_get_inject_buf(ep->region, cmd);
 	memcpy(buf->buf, tx_buf->buf, cmd_ctx->cmd->hdr.size);
 	slist_insert_tail(&buf->entry, &cmd_ctx->buf_list);
-out:
-	smr_return_cmd(ep, cmd);
 	return ret;
 }
 

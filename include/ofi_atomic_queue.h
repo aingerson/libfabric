@@ -249,6 +249,13 @@ static inline void name ## _discard(entrytype *buf,		\
 	ofi_atomic_store_explicit64(&ce->seq, pos + 1,		\
 			      memory_order_release);		\
 }								\
+static inline int name ## _get_buf_idx(struct name *aq,		\
+				       entrytype *buffer)	\
+{								\
+	struct name ## _entry *e = container_of(		\
+			buffer, struct name ## _entry, buf);	\
+	return (e - aq->entry) / sizeof(struct name ## _entry);	\
+}								\
 void dummy ## name (void) /* work-around global ; scope */
 
 #ifdef __cplusplus
