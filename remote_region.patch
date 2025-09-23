@@ -1,0 +1,90 @@
+commit 7c512aec15b4cdccc8e9dd034fede5829d046142
+Author: Alexia Ingerson <alexia.ingerson@intel.com>
+Date:   Wed May 21 20:20:41 2025 -0700
+
+diff --git a/prov/shm/src/smr.h b/prov/shm/src/smr.h
+index 91b273133..5b50fe259 100644
+--- a/prov/shm/src/smr.h
++++ b/prov/shm/src/smr.h
+@@ -101,20 +101,18 @@ static inline uintptr_t smr_peer_to_peer(struct smr_ep *ep,
+ 					 struct smr_region *peer_smr,
+ 					 int64_t id, uintptr_t local_ptr)
+ {
+-	struct smr_peer_data *peer_data = smr_peer_data(ep->region);
+ 	uint64_t offset = local_ptr - (uintptr_t) peer_smr;
+ 
+-	return (uintptr_t) peer_data[id].remote_region + offset;
++	return (uintptr_t) peer_smr->base_addr + offset;
+ }
+ 
+ static inline uintptr_t smr_peer_to_owner(struct smr_ep *ep,
+-					 struct smr_region *peer_smr,
+-					 int64_t id, uintptr_t local_ptr)
++					  struct smr_region *peer_smr,
++					  int64_t id, uintptr_t local_ptr)
+ {
+-	struct smr_peer_data *peer_data = smr_peer_data(ep->region);
+ 	uint64_t offset = local_ptr - (uintptr_t) peer_smr;
+ 
+-	return (uintptr_t) peer_data[id].remote_region + offset;
++	return (uintptr_t) peer_smr->base_addr + offset;
+ }
+ 
+ static inline void smr_return_cmd(struct smr_ep *ep, struct smr_cmd *cmd)
+diff --git a/prov/shm/src/smr_ep.c b/prov/shm/src/smr_ep.c
+index 3eae8f2ce..6c1015854 100644
+--- a/prov/shm/src/smr_ep.c
++++ b/prov/shm/src/smr_ep.c
+@@ -161,15 +161,6 @@ static struct fi_ops_ep smr_ep_ops = {
+ 	.tx_size_left = fi_no_tx_size_left,
+ };
+ 
+-static inline uintptr_t smr_peer_to_peer2(struct smr_ep *ep,
+-					  struct smr_region *peer_smr,
+-					  int64_t id, uintptr_t local_ptr)
+-{
+-	uint64_t offset = local_ptr - (uintptr_t) peer_smr;
+-
+-	return (uintptr_t) peer_smr->base_addr + offset;
+-}
+-
+ static void smr_send_name(struct smr_ep *ep, int64_t id)
+ {
+ 	struct smr_region *peer_smr;
+@@ -186,7 +177,7 @@ static void smr_send_name(struct smr_ep *ep, int64_t id)
+ 	if (ret == -FI_ENOENT)
+ 		return;
+ 
+-	ce->ptr = smr_peer_to_peer2(ep, peer_smr, id, (uintptr_t) &ce->cmd);
++	ce->ptr = smr_peer_to_peer(ep, peer_smr, id, (uintptr_t) &ce->cmd);
+ 	ce->cmd.hdr.op = SMR_OP_MAX + ofi_ctrl_connreq;
+ 	ce->cmd.hdr.tx_id = id;
+ 	ce->cmd.hdr.cq_data = ep->region->pid;
+diff --git a/prov/shm/src/smr_progress.c b/prov/shm/src/smr_progress.c
+index 3ddd239f3..7f64ee316 100644
+--- a/prov/shm/src/smr_progress.c
++++ b/prov/shm/src/smr_progress.c
+@@ -867,11 +867,8 @@ static void smr_progress_connreq(struct smr_ep *ep, struct smr_cmd *cmd)
+ 	}
+ 
+ 	smr_set_ipc_valid(ep, idx);
+-	smr_peer_data(peer_smr)[cmd->hdr.tx_id].remote_region =
+-			(uintptr_t) ep->region;
+ 	smr_peer_data(ep->region)[idx].id = cmd->hdr.tx_id;
+ 	smr_peer_data(ep->region)[idx].local_region = (uintptr_t) peer_smr;
+-	smr_peer_data(ep->region)[idx].remote_region = peer_smr->base_addr;
+ 
+ 	assert(ep->map->num_peers > 0);
+ 	ep->region->max_sar_buf_per_peer = MIN(
+diff --git a/prov/shm/src/smr_util.h b/prov/shm/src/smr_util.h
+index e13a7fd4f..432595057 100644
+--- a/prov/shm/src/smr_util.h
++++ b/prov/shm/src/smr_util.h
+@@ -182,7 +182,6 @@ struct smr_peer_data {
+ 	uint16_t		name_sent;
+ 	uint16_t		ipc_valid;
+ 	uintptr_t		local_region;
+-	uintptr_t		remote_region;
+ 	struct ofi_xpmem_client xpmem;
+ } __attribute__ ((aligned(64)));
+ 

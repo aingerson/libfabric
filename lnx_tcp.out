@@ -1,0 +1,71 @@
+fi_info:
+    caps: [ FI_MSG, FI_RMA, FI_READ, FI_RECV, FI_SEND, FI_REMOTE_READ, FI_REMOTE_WRITE, FI_MULTI_RECV, FI_RMA_PMEM, FI_LOCAL_COMM, FI_REMOTE_COMM, FI_RMA_EVENT ]
+    mode: [  ]
+    addr_format: FI_SOCKADDR_IN
+    src_addrlen: 16
+    dest_addrlen: 16
+    src_addr: fi_sockaddr_in://192.168.1.4:0
+    dest_addr: fi_sockaddr_in://192.168.1.5:41544
+    handle: 0xdce370
+    fi_tx_attr:
+        caps: [ FI_MSG, FI_RMA, FI_READ, FI_SEND, FI_RMA_PMEM ]
+        mode: [  ]
+        op_flags: [  ]
+        msg_order: [ FI_ORDER_RAR, FI_ORDER_RAW, FI_ORDER_RAS, FI_ORDER_WAW, FI_ORDER_WAS, FI_ORDER_SAW, FI_ORDER_SAS, FI_ORDER_RMA_RAR, FI_ORDER_RMA_RAW, FI_ORDER_RMA_WAW, FI_ORDER_ATOMIC_RAR, FI_ORDER_ATOMIC_RAW, FI_ORDER_ATOMIC_WAW ]
+        inject_size: 128
+        size: 128
+        iov_limit: 4
+        rma_iov_limit: 4
+        tclass: 0x0
+    fi_rx_attr:
+        caps: [ FI_MSG, FI_RMA, FI_RECV, FI_REMOTE_READ, FI_REMOTE_WRITE, FI_MULTI_RECV, FI_RMA_PMEM, FI_RMA_EVENT, FI_SOURCE ]
+        mode: [  ]
+        op_flags: [  ]
+        msg_order: [ FI_ORDER_RAR, FI_ORDER_RAW, FI_ORDER_RAS, FI_ORDER_WAW, FI_ORDER_WAS, FI_ORDER_SAW, FI_ORDER_SAS, FI_ORDER_RMA_RAR, FI_ORDER_RMA_RAW, FI_ORDER_RMA_WAW, FI_ORDER_ATOMIC_RAR, FI_ORDER_ATOMIC_RAW, FI_ORDER_ATOMIC_WAW ]
+        size: 4096
+        iov_limit: 4
+    fi_ep_attr:
+        type: FI_EP_MSG
+        protocol: FI_PROTO_SOCK_TCP
+        protocol_version: 0
+        max_msg_size: 18446744073709551615
+        msg_prefix_size: 0
+        max_order_raw_size: 18446744073709551615
+        max_order_war_size: 0
+        max_order_waw_size: 18446744073709551615
+        mem_tag_format: 0xaaaaaaaaaaaaaaaa
+        tx_ctx_cnt: 1
+        rx_ctx_cnt: FI_SHARED_CONTEXT
+        auth_key_size: 0
+    fi_domain_attr:
+        domain: 0x0
+        name: eth0
+        threading: FI_THREAD_SAFE
+        progress: FI_PROGRESS_AUTO
+        resource_mgmt: FI_RM_ENABLED
+        av_type: FI_AV_UNSPEC
+        mr_mode: [  ]
+        mr_key_size: 8
+        cq_data_size: 8
+        cq_cnt: 256
+        ep_cnt: 8192
+        tx_ctx_cnt: 8192
+        rx_ctx_cnt: 8192
+        max_ep_tx_ctx: 1
+        max_ep_rx_ctx: 1
+        max_ep_stx_ctx: 0
+        max_ep_srx_ctx: 8192
+        cntr_cnt: 0
+        mr_iov_limit: 1
+        caps: [ FI_LOCAL_COMM, FI_REMOTE_COMM ]
+        mode: [  ]
+        auth_key_size: 0
+        max_err_data: 0
+        mr_cnt: 0
+        tclass: 0x0
+    fi_fabric_attr:
+        name: 192.168.1.0/24
+        prov_name: tcp
+        prov_version: 202.0
+        api_version: 1.21
+    nic: (nil)

@@ -1,0 +1,176 @@
+commit 449e5d850a2bc9c20024acdc0df50164cdf97912
+Author: Alexia Ingerson <alexia.ingerson@intel.com>
+Date:   Wed Jun 18 10:32:37 2025 -0700
+
+diff --git a/prov/shm/src/smr.h b/prov/shm/src/smr.h
+index efd8b32d8c..4c5f89d494 100644
+--- a/prov/shm/src/smr.h
++++ b/prov/shm/src/smr.h
+@@ -234,6 +234,7 @@ struct smr_ep {
+ 	size_t			min_multi_recv_size;
+ 
+ 	int			ep_idx;
++	bool			user_setname;
+ 	enum ofi_shm_p2p_type	p2p_type;
+ 	struct smr_sock_info	*sock_info;
+ 	void			*dsa_context;
+diff --git a/prov/shm/src/smr_ep.c b/prov/shm/src/smr_ep.c
+index c8cee247b0..6442d28e1a 100644
+--- a/prov/shm/src/smr_ep.c
++++ b/prov/shm/src/smr_ep.c
+@@ -52,9 +52,8 @@ DEFINE_LIST(sock_name_list);
+ pthread_mutex_t sock_list_lock = PTHREAD_MUTEX_INITIALIZER;
+ int smr_global_ep_idx = 0;
+ 
+-int smr_setname(fid_t fid, void *addr, size_t addrlen)
++static int smr_setname_internal(struct smr_ep *ep, void *addr, size_t addrlen)
+ {
+-	struct smr_ep *ep;
+ 	char *name;
+ 
+ 	if (addrlen > SMR_NAME_MAX) {
+@@ -63,7 +62,6 @@ int smr_setname(fid_t fid, void *addr, size_t addrlen)
+ 		return -FI_EINVAL;
+ 	}
+ 
+-	ep = container_of(fid, struct smr_ep, util_ep.ep_fid.fid);
+ 	if (ep->region) {
+ 		FI_WARN(&smr_prov, FI_LOG_EP_CTRL,
+ 			"Cannot set name after EP has been enabled\n");
+@@ -80,6 +78,16 @@ int smr_setname(fid_t fid, void *addr, size_t addrlen)
+ 	return 0;
+ }
+ 
++int smr_setname(fid_t fid, void *addr, size_t addrlen)
++{
++	struct smr_ep *ep;
++
++	ep = container_of(fid, struct smr_ep, util_ep.ep_fid.fid);
++	ep->user_setname = true;
++
++	return smr_setname_internal(ep, addr, addrlen);
++}
++
+ int smr_getname(fid_t fid, void *addr, size_t *addrlen)
+ {
+ 	struct smr_ep *ep;
+@@ -1125,6 +1133,7 @@ static int smr_ep_ctrl(struct fid *fid, int command, void *arg)
+ 	struct smr_ep *ep;
+ 	struct smr_av *av;
+ 	struct fid_ep *srx;
++	char tmp_name[SMR_NAME_MAX];
+ 	int ret;
+ 
+ 	ep = container_of(fid, struct smr_ep, util_ep.ep_fid.fid);
+@@ -1144,9 +1153,19 @@ static int smr_ep_ctrl(struct fid *fid, int command, void *arg)
+ 		attr.flags = ep->util_ep.caps & FI_HMEM ?
+ 				SMR_FLAG_HMEM_ENABLED : 0;
+ 
++create_shm:
+ 		ret = smr_create(&smr_prov, &av->smr_map, &attr, &ep->region);
+-		if (ret)
+-			return ret;
++		if (ret == -FI_EBUSY && !ep->user_setname) {
++			snprintf(tmp_name, SMR_NAME_MAX - 1, "%s:%d",
++				ep->name, ofi_generate_seed());
++			FI_WARN(&smr_prov, FI_LOG_EP_CTRL,
++				"SMR %s busy, retry with name %s\n",
++				ep->name, tmp_name);
++
++			if (strcmp(tmp_name, ep->name) &&
++			    !smr_setname_internal(ep, tmp_name, SMR_NAME_MAX))
++				goto create_shm;
++		}
+ 
+ 		if (ep->util_ep.caps & FI_HMEM || smr_env.disable_cma) {
+ 			ep->region->cma_cap_peer = SMR_VMA_CAP_OFF;
+@@ -1303,7 +1322,8 @@ int smr_endpoint(struct fid_domain *domain, struct fi_info *info,
+ 	ret = smr_endpoint_name(ep, name, info->src_addr, info->src_addrlen);
+ 	if (ret)
+ 		goto free;
+-	ret = smr_setname(&ep->util_ep.ep_fid.fid, name, SMR_NAME_MAX);
++
++	ret = smr_setname_internal(ep, name, SMR_NAME_MAX);
+ 	if (ret)
+ 		goto free;
+ 
+diff --git a/prov/shm/src/smr_util.c b/prov/shm/src/smr_util.c
+index 383aed9bfe..1ecc63de10 100644
+--- a/prov/shm/src/smr_util.c
++++ b/prov/shm/src/smr_util.c
+@@ -143,45 +143,6 @@ size_t smr_calculate_size_offsets(size_t tx_count, size_t rx_count,
+ 	return total_size;
+ }
+ 
+-static int smr_retry_map(const char *name, int *fd)
+-{
+-	char tmp[NAME_MAX];
+-	struct smr_region *old_shm;
+-	struct stat sts;
+-	int shm_pid;
+-
+-	*fd = shm_open(name, O_RDWR | O_CREAT, S_IRUSR | S_IWUSR);
+-	if (*fd < 0)
+-		return -errno;
+-
+-	old_shm = mmap(NULL, sizeof(*old_shm), PROT_READ | PROT_WRITE,
+-		       MAP_SHARED, *fd, 0);
+-	if (old_shm == MAP_FAILED)
+-		goto err;
+-
+-        /* No backwards compatibility for now. */
+-	if (old_shm->version != SMR_VERSION) {
+-		munmap(old_shm, sizeof(*old_shm));
+-		goto err;
+-	}
+-	shm_pid = old_shm->pid;
+-	munmap(old_shm, sizeof(*old_shm));
+-
+-	if (!shm_pid)
+-		return FI_SUCCESS;
+-
+-	memset(tmp, 0, sizeof(tmp));
+-	snprintf(tmp, sizeof(tmp), "/proc/%d", shm_pid);
+-
+-	if (stat(tmp, &sts) == -1 && errno == ENOENT)
+-		return FI_SUCCESS;
+-
+-err:
+-	close(*fd);
+-	shm_unlink(name);
+-	return -FI_EBUSY;
+-}
+-
+ static void smr_lock_init(pthread_spinlock_t *lock)
+ {
+ 	pthread_spin_init(lock, PTHREAD_PROCESS_SHARED);
+@@ -214,15 +175,7 @@ int smr_create(const struct fi_provider *prov, struct smr_map *map,
+ 				attr->name, strerror(errno));
+ 			return -errno;
+ 		}
+-
+-		ret = smr_retry_map(attr->name, &fd);
+-		if (ret) {
+-			FI_WARN(prov, FI_LOG_EP_CTRL, "shm file in use (%s)\n",
+-				attr->name);
+-			return ret;
+-		}
+-		FI_WARN(prov, FI_LOG_EP_CTRL,
+-			"Overwriting shm from dead process (%s)\n", attr->name);
++		return -FI_EBUSY;
+ 	}
+ 
+ 	ep_name = calloc(1, sizeof(*ep_name));
+diff --git a/prov/shm/src/smr_util.h b/prov/shm/src/smr_util.h
+index 7ed4e1e426..92c18e52a1 100644
+--- a/prov/shm/src/smr_util.h
++++ b/prov/shm/src/smr_util.h
+@@ -228,6 +228,8 @@ struct smr_region {
+ 	uint8_t		resv;
+ 	uint16_t	flags;
+ 	int		pid;
++	/* Do not touch above fields. It might break backwards compatibility */
++
+ 	uint8_t		cma_cap_peer;
+ 	uint8_t		cma_cap_self;
+ 	uint8_t		xpmem_cap_self;

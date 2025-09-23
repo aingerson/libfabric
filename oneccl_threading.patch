@@ -1,0 +1,343 @@
+commit fc8bcee8cd25beb019ac76fc4e33181a0e426ec9
+Author: Alexia Ingerson <alexia.ingerson@intel.com>
+Date:   Tue May 7 15:44:52 2024 -0700
+
+    ofi: quick implementation of FI_THREAD_DOMAIN
+    
+    move fid_domain and fid_av into atl_ofi_prov_ep_t and initialize separate
+    domains and AVs for each endpoint. This reduces bottlenecks for domain
+    resources such as progress engines
+    
+    Signed-off-by: Alexia Ingerson <alexia.ingerson@intel.com>
+
+diff --git a/src/atl/ofi/atl_ofi.cpp b/src/atl/ofi/atl_ofi.cpp
+index 4c2325f0..8280c13c 100644
+--- a/src/atl/ofi/atl_ofi.cpp
++++ b/src/atl/ofi/atl_ofi.cpp
+@@ -293,13 +293,17 @@ atl_status_t atl_ofi::update(std::shared_ptr<ipmi> pmi) {
+ atl_status_t atl_ofi::mr_reg(const void* buf, size_t len, atl_mr_t** mr) {
+     int ret;
+     atl_ofi_prov_t* prov = &(ctx.provs[0]);
++    atl_ofi_prov_ep_t* ep;
++    size_t i;
+ 
+     atl_ofi_mr_t* ofi_mr;
+     ofi_mr = (atl_ofi_mr_t*)calloc(1, sizeof(atl_ofi_mr_t));
+     if (!ofi_mr)
+         return ATL_STATUS_FAILURE;
+ 
+-    ret = fi_mr_reg(prov->domain,
++    for (i = 0; i < ctx.ep_count; i++) {
++        ep = &(prov->eps[i]);
++        ret = fi_mr_reg(ep->domain,
+                     buf,
+                     len,
+                     FI_SEND | FI_RECV | FI_READ | FI_WRITE | FI_REMOTE_READ | FI_REMOTE_WRITE,
+@@ -308,14 +312,19 @@ atl_status_t atl_ofi::mr_reg(const void* buf, size_t len, atl_mr_t** mr) {
+                     0,
+                     &ofi_mr->fi_mr,
+                     nullptr);
+-    if (ret)
+-        goto mr_reg_err;
++        if (ret)
++            goto mr_reg_err;
++    }
+ 
+     ofi_mr->mr.buf = (void*)buf;
+     ofi_mr->mr.len = len;
+     ofi_mr->mr.remote_key = (uintptr_t)fi_mr_key(ofi_mr->fi_mr);
+     ofi_mr->mr.local_key = (uintptr_t)fi_mr_desc(ofi_mr->fi_mr);
+ 
++    //this one is wrong tbd
++    LOG_ERROR("I'm in a bad path", ret);
++    goto mr_reg_err;
++
+     *mr = &ofi_mr->mr;
+     return ATL_STATUS_SUCCESS;
+ 
+@@ -676,7 +685,6 @@ atl_status_t atl_ofi::get_rank2proc_map(std::shared_ptr<ipmi> pmi,
+     CCL_THROW_IF_NOT(rank2proc_map.empty());
+     rank2proc_map.clear();
+     rank2proc_map.resize(pmi_size);
+-
+     if (!need_extra_exchange) {
+         for (size_t i = 0; i < rank2proc_map.size(); i++) {
+             rank2proc_map[i] = i;
+@@ -1222,11 +1230,14 @@ void atl_ofi::mr_cache::get(atl_ep_t& ep,
+                             void* buf,
+                             size_t bytes,
+                             fid_mr** mr) {
+-    CCL_THROW_IF_NOT(prov->domain);
++
++    atl_ofi_prov_ep_t* prov_ep = &(prov->eps[ep.idx]);
++
++    CCL_THROW_IF_NOT(prov_ep->domain);
+     CCL_THROW_IF_NOT(mr);
+ 
+     if (ccl::global_data::env().enable_atl_cache) {
+-        key_t key(prov->domain, buf, bytes);
++        key_t key(prov_ep->domain, buf, bytes);
+         auto key_value = cache.find(key);
+         if (key_value != cache.end()) {
+             *mr = key_value->second;
+@@ -1283,7 +1294,7 @@ void atl_ofi::mr_cache::get(atl_ep_t& ep,
+ #endif // CCL_ENABLE_OFI_HMEM
+ 
+     int ofi_ret;
+-    ATL_OFI_CALL(fi_mr_regattr(prov->domain, &mr_attr, 0, mr),
++    ATL_OFI_CALL(fi_mr_regattr(prov_ep->domain, &mr_attr, 0, mr),
+                  ofi_ret,
+                  CCL_THROW("failed to register mr, ret: ",
+                            ofi_ret,
+@@ -1300,7 +1311,7 @@ void atl_ofi::mr_cache::get(atl_ep_t& ep,
+     }
+ 
+     if (ccl::global_data::env().enable_atl_cache) {
+-        key_t key(prov->domain, buf, bytes);
++        key_t key(prov_ep->domain, buf, bytes);
+         LOG_DEBUG("inserted to mr cache: buf: ", buf, ", bytes: ", bytes);
+         cache.insert({ std::move(key), *mr });
+     }
+@@ -1357,21 +1368,31 @@ void atl_ofi::handle_address_table_update(atl_ofi_prov_t& prov,
+         return;
+     }
+     // Insert addresses into AV
+-    int insert_count = 0;
++    atl_ofi_prov_ep_t* prov_ep;
++    size_t insert_count;
+     for (size_t i = old_prov_ep_names_size; i < prov_ep_names.size(); i++) {
+-        insert_count +=
+-            fi_av_insert(prov.av, prov_ep_names[i].data(), 1, &prov.addr_table[i], 0, nullptr);
+-    }
+-    if (insert_count != (int)new_ep_names_count) {
+-        LOG_ERROR(
+-            "Unexpected av_insert results: expected ", new_ep_names_count, " got ", insert_count);
+-        if (ccl::global_data::env().kvs_init_mode == ccl::kvs_mode::pmix_ofi_shm) {
+-            if (shared_memory) {
+-                munmap(shared_memory, length);
++        insert_count = 0;
++        for (size_t j = 0; j < ctx.ep_count; j++) {
++            prov_ep = &(prov.eps[j]);
++            for (size_t i = old_prov_ep_names_size; i < prov_ep_names.size(); i++) {
++                insert_count += fi_av_insert(
++                    prov_ep->av, prov_ep_names[i].data(), 1, &prov.addr_table[i], 0, nullptr);
++            }
++            if (insert_count != new_ep_names_count) {
++                LOG_ERROR("unexpected av_insert results: expected ",
++                        prov_ep_names.size(),
++                        " got ",
++                        insert_count);
++                if (ccl::global_data::env().kvs_init_mode == ccl::kvs_mode::pmix_ofi_shm) {
++                    if (shared_memory) {
++                        munmap(shared_memory, length);
++                    }
++                }
++                return;
+             }
+         }
+-        return;
+     }
++
+     // Handle scalable endpoints if prov.sep is true
+     if (prov.sep) {
+         fi_addr_t* table = (fi_addr_t*)calloc(1, new_ep_names_count * sizeof(fi_addr_t));
+@@ -1389,10 +1410,12 @@ void atl_ofi::handle_address_table_update(atl_ofi_prov_t& prov,
+                &prov.addr_table[old_prov_ep_names_size],
+                new_ep_names_count * sizeof(fi_addr_t));
+         // Replicate for each endpoint context
+-        for (int i = 0; i < (int)new_ep_names_count; i++) {
+-            for (size_t j = 0; j < ctx.ep_count; j++) {
+-                prov.addr_table[(old_prov_ep_names_size + i) * ctx.ep_count + j] =
+-                    fi_rx_addr(table[i], j, prov.rx_ctx_bits);
++        for (size_t i = 0; i < new_ep_names_count; i++) {
++            for (size_t i = 0; i < new_ep_names_count; i++) {
++                for (size_t j = 0; j < ctx.ep_count; j++) {
++                    prov.addr_table[(old_prov_ep_names_size + i) * ctx.ep_count + j] =
++                        fi_rx_addr(table[i], j, prov.rx_ctx_bits);
++                }
+             }
+         }
+         free(table);
+diff --git a/src/atl/ofi/atl_ofi_helper.cpp b/src/atl/ofi/atl_ofi_helper.cpp
+index f3e50fb5..7cecc8c2 100644
+--- a/src/atl/ofi/atl_ofi_helper.cpp
++++ b/src/atl/ofi/atl_ofi_helper.cpp
+@@ -507,9 +507,23 @@ atl_status_t atl_ofi_prov_update_addr_table(atl_ofi_ctx_t& ctx,
+     if (!prov->addr_table)
+         goto err_ep_names;
+ 
++    atl_ofi_prov_ep_t* ep;
++    insert_count = 0;
+     /* insert all the EP names into the AV */
+-    insert_count = fi_av_insert(
+-        prov->av, ep_names_table, named_ep_count * proc_count, prov->addr_table, 0, nullptr);
++    for (size_t j = 0; j < ctx.ep_count; j++) {
++        ep = &(prov->eps[j]);
++        insert_count = fi_av_insert(
++            ep->av, ep_names_table, named_ep_count * proc_count, prov->addr_table, 0, nullptr);
++        if (insert_count != (int)(named_ep_count * proc_count)) {
++            LOG_ERROR("unexpected av_insert results: expected ",
++                    named_ep_count * proc_count,
++                    " got ",
++                    insert_count);
++            ret = ATL_STATUS_FAILURE;
++            goto err_addr_table;
++        }
++    }
++    ret = ATL_STATUS_SUCCESS;
+ 
+     LOG_DEBUG("av_insert: ep_count ",
+               named_ep_count,
+@@ -518,18 +532,6 @@ atl_status_t atl_ofi_prov_update_addr_table(atl_ofi_ctx_t& ctx,
+               ", inserted ",
+               insert_count);
+ 
+-    if (insert_count != (int)(named_ep_count * proc_count)) {
+-        LOG_ERROR("unexpected av_insert results: expected ",
+-                  named_ep_count * proc_count,
+-                  " got ",
+-                  insert_count);
+-        ret = ATL_STATUS_FAILURE;
+-        goto err_addr_table;
+-    }
+-    else {
+-        ret = ATL_STATUS_SUCCESS;
+-    }
+-
+     if (prov->sep) {
+         if (named_ep_count != 1) {
+             LOG_ERROR("unexpected named_ep_count ", named_ep_count);
+@@ -755,6 +757,12 @@ void atl_ofi_prov_ep_destroy(atl_ofi_prov_t* prov, atl_ofi_prov_ep_t* ep) {
+     if (ep->name.addr)
+         free(ep->name.addr);
+ 
++    if (ep->av)
++        fi_close(&ep->av->fid);
++
++    if (ep->domain)
++        fi_close(&ep->domain->fid);
++
+     ep->rx = ep->tx = nullptr;
+     ep->cq = nullptr;
+     ep->name.addr = nullptr;
+@@ -774,12 +782,6 @@ void atl_ofi_prov_destroy(atl_ofi_ctx_t& ctx, atl_ofi_prov_t* prov) {
+     if (prov->sep)
+         fi_close(&prov->sep->fid);
+ 
+-    if (prov->av)
+-        fi_close(&prov->av->fid);
+-
+-    if (prov->domain)
+-        fi_close(&prov->domain->fid);
+-
+     if (prov->fabric)
+         fi_close(&prov->fabric->fid);
+ 
+@@ -833,14 +835,17 @@ atl_status_t atl_ofi_prov_ep_init(atl_ofi_prov_t* prov, size_t ep_idx) {
+     struct fi_cq_attr cq_attr;
+     struct fi_tx_attr tx_attr;
+     struct fi_rx_attr rx_attr;
++    struct fi_av_attr av_attr;
+ 
+     atl_ofi_prov_ep_t* ep = &(prov->eps[ep_idx]);
+ 
+     memset(&cq_attr, 0, sizeof(cq_attr));
+     cq_attr.format = FI_CQ_FORMAT_TAGGED;
+ 
++    ATL_OFI_CALL(fi_domain(prov->fabric, prov->info, &ep->domain, nullptr), ret, goto err);
++
+     ATL_OFI_CALL(
+-        fi_cq_open(prov->domain, &cq_attr, &ep->cq, nullptr), ret, return ATL_STATUS_FAILURE);
++        fi_cq_open(ep->domain, &cq_attr, &ep->cq, nullptr), ret, return ATL_STATUS_FAILURE);
+ 
+     if (prov->sep) {
+         rx_attr = *prov->info->rx_attr;
+@@ -863,13 +868,19 @@ atl_status_t atl_ofi_prov_ep_init(atl_ofi_prov_t* prov, size_t ep_idx) {
+     else {
+         struct fid_ep* endpoint;
+ 
+-        ATL_OFI_CALL(fi_endpoint(prov->domain, prov->info, &endpoint, nullptr), ret, goto err);
++        ATL_OFI_CALL(fi_endpoint(ep->domain, prov->info, &endpoint, nullptr), ret, goto err);
+ 
+         ep->tx = ep->rx = endpoint;
+ 
+         ATL_OFI_CALL(fi_ep_bind(endpoint, &ep->cq->fid, FI_SEND | FI_RECV), ret, goto err);
+ 
+-        ATL_OFI_CALL(fi_ep_bind(endpoint, &prov->av->fid, 0), ret, goto err);
++        memset(&av_attr, 0, sizeof(av_attr));
++        av_attr.type = FI_AV_TABLE;
++        av_attr.rx_ctx_bits = prov->rx_ctx_bits = (int)ceil(log2(prov->info->ep_attr->rx_ctx_cnt));
++
++        ATL_OFI_CALL(fi_av_open(ep->domain, &av_attr, &ep->av, nullptr), ret, goto err);
++
++        ATL_OFI_CALL(fi_ep_bind(endpoint, &ep->av->fid, 0), ret, goto err);
+ 
+         fi_enable(endpoint);
+     }
+@@ -1136,6 +1147,7 @@ atl_status_t atl_ofi_get_prov_list(atl_ofi_ctx_t& ctx,
+     fi_freeinfo(prov_list);
+     prov_list = nullptr;
+ 
++    hints->domain_attr->threading = FI_THREAD_DOMAIN;
+     ret = fi_getinfo(fi_version, nullptr, nullptr, 0ULL, hints, &prov_list);
+     if (ret || !prov_list) {
+         LOG_ERROR("fi_getinfo error, prov_name ", prov_name_str);
+@@ -1166,12 +1178,9 @@ atl_status_t atl_ofi_prov_init(atl_ofi_ctx_t& ctx,
+                                atl_attr_t* attr,
+                                std::shared_ptr<ipmi> pmi,
+                                ep_names_t& ep_names) {
+-    struct fi_av_attr av_attr;
+     size_t ep_idx = 0;
+     ssize_t ret = 0;
+ 
+-    memset(&av_attr, 0, sizeof(av_attr));
+-
+     if (coord.global_idx == 0) {
+         LOG_INFO("provider: ", info->fabric_attr->prov_name);
+         LOG_INFO("  nic: ", atl_ofi_get_nic_info(info));
+@@ -1193,17 +1202,11 @@ atl_status_t atl_ofi_prov_init(atl_ofi_ctx_t& ctx,
+ 
+     ATL_OFI_CALL(fi_fabric(info->fabric_attr, &prov->fabric, nullptr), ret, goto err);
+ 
+-    ATL_OFI_CALL(fi_domain(prov->fabric, info, &prov->domain, nullptr), ret, goto err);
+-
+-    av_attr.type = FI_AV_TABLE;
+-    av_attr.rx_ctx_bits = prov->rx_ctx_bits = (int)ceil(log2(prov->info->ep_attr->rx_ctx_cnt));
+-
+-    ATL_OFI_CALL(fi_av_open(prov->domain, &av_attr, &prov->av, nullptr), ret, goto err);
+-
+-    if (info->domain_attr->max_ep_tx_ctx > 1) {
+-        ATL_OFI_CALL(fi_scalable_ep(prov->domain, info, &prov->sep, nullptr), ret, goto err);
+-        ATL_OFI_CALL(fi_scalable_ep_bind(prov->sep, &prov->av->fid, 0), ret, goto err);
+-    }
++    //TODO scalable EP path is wrong
++    // if (info->domain_attr->max_ep_tx_ctx > 1) {
++    //     ATL_OFI_CALL(fi_scalable_ep(prov->domain, info, &prov->sep, nullptr), ret, goto err);
++    //     ATL_OFI_CALL(fi_scalable_ep_bind(prov->sep, &prov->av->fid, 0), ret, goto err);
++    // }
+ 
+     prov->eps = (atl_ofi_prov_ep_t*)calloc(1, sizeof(atl_ofi_prov_ep_t) * ctx.ep_count);
+     if (!prov->eps) {
+diff --git a/src/atl/ofi/atl_ofi_helper.hpp b/src/atl/ofi/atl_ofi_helper.hpp
+index b1115da6..ae829fdf 100644
+--- a/src/atl/ofi/atl_ofi_helper.hpp
++++ b/src/atl/ofi/atl_ofi_helper.hpp
+@@ -153,6 +153,8 @@ typedef struct {
+     struct fid_ep* tx;
+     struct fid_ep* rx;
+     struct fid_cq* cq;
++    struct fid_domain* domain;
++    struct fid_av* av;
+     atl_ofi_prov_ep_name_t name;
+ } atl_ofi_prov_ep_t;
+ 
+@@ -160,8 +162,7 @@ typedef struct {
+     size_t idx;
+     struct fi_info* info;
+     struct fid_fabric* fabric;
+-    struct fid_domain* domain;
+-    struct fid_av* av;
++
+     atl_ofi_prov_ep_t* eps;
+ 
+     int is_shm;

@@ -1,0 +1,145 @@
+commit 0388df8edf567f0d56de0b91a66e38ecb0e88a43
+Author: Alexia Ingerson <alexia.ingerson@intel.com>
+Date:   Wed Apr 23 15:51:01 2025 -0700
+
+diff --git a/fabtests/common/shared.c b/fabtests/common/shared.c
+index 34702f029..a7641d2cd 100644
+--- a/fabtests/common/shared.c
++++ b/fabtests/common/shared.c
+@@ -110,7 +110,7 @@ int sock = -1;
+ int oob_sock = -1;
+ 
+ struct fi_av_attr av_attr = {
+-	.type = FI_AV_MAP,
++	.type = FI_AV_TABLE,
+ 	.count = 1
+ };
+ struct fi_eq_attr eq_attr = {
+@@ -756,10 +756,13 @@ int ft_open_fabric_res(void)
+ 		return ret;
+ 	}
+ 
+-	ret = fi_eq_open(fabric, &eq_attr, &eq, NULL);
+-	if (ret) {
+-		FT_PRINTERR("fi_eq_open", ret);
+-		return ret;
++	if (fi->ep_attr->type == FI_EP_MSG || fi->caps & FI_MULTICAST ||
++	    fi->caps & FI_COLLECTIVE) {
++		ret = fi_eq_open(fabric, &eq_attr, &eq, NULL);
++		if (ret) {
++			FT_PRINTERR("fi_eq_open", ret);
++			return ret;
++		}
+ 	}
+ 
+ 	return ft_open_domain_res();
+diff --git a/fabtests/scripts/runfabtests.sh b/fabtests/scripts/runfabtests.sh
+index c1987b4a3..e52cadbe5 100755
+--- a/fabtests/scripts/runfabtests.sh
++++ b/fabtests/scripts/runfabtests.sh
+@@ -158,30 +158,6 @@ functional_tests=(
+ )
+ 
+ short_tests=(
+-	"fi_msg_pingpong -I 5"
+-	"fi_msg_pingpong -I 5 -v"
+-	"fi_msg_bw -I 5"
+-	"fi_msg_bw -I 5 -v"
+-	"fi_rma_bw -e msg -o write -I 5"
+-	"fi_rma_bw -e msg -o read -I 5"
+-	"fi_rma_bw -e msg -o writedata -I 5"
+-	"fi_rma_bw -e rdm -o write -I 5"
+-	"fi_rma_bw -e rdm -o write -I 5 -U"
+-	"fi_rma_bw -e rdm -o read -I 5"
+-	"fi_rma_bw -e rdm -o read -I 5 -U"
+-	"fi_rma_bw -e rdm -o writedata -I 5"
+-	"fi_rma_bw -e rdm -o writedata -I 5 -U"
+-	"fi_rdm_atomic -I 5 -o all"
+-	"fi_rdm_atomic -I 5 -o all -U"
+-	"fi_rdm_atomic -I 5 -o all -v"
+-	"fi_rdm_atomic -I 5 -o all -U -v"
+-	"fi_rdm_cntr_pingpong -I 5"
+-	"fi_multi_recv -e rdm -I 5"
+-	"fi_multi_recv -e msg -I 5"
+-	"fi_rdm_pingpong -I 5"
+-	"fi_rdm_pingpong -I 5 -U"
+-	"fi_rdm_pingpong -I 5 -v"
+-	"fi_rdm_pingpong -I 5 -v -U"
+ 	"fi_rdm_tagged_pingpong -I 5"
+ 	"fi_rdm_tagged_pingpong -I 5 -U"
+ 	"fi_rdm_tagged_pingpong -I 5 -v"
+@@ -190,7 +166,6 @@ short_tests=(
+ 	"fi_rdm_tagged_bw -I 5 -U"
+ 	"fi_rdm_tagged_bw -I 5 -v"
+ 	"fi_rdm_tagged_bw -I 5 -v -U"
+-	"fi_dgram_pingpong -I 5"
+ )
+ 
+ standard_tests=(
+@@ -801,7 +776,7 @@ function main {
+ 		local -r tests="complex"
+ 		complex_type=$1
+ 	else
+-		local -r tests=$(echo $1 | sed 's/all/unit,regression,functional,standard,complex,multinode,threaded/g' | tr ',' ' ')
++		local -r tests=$(echo $1 | sed 's/all/unit,regression,functional,standard,complex,multinode,threaded,short/g' | tr ',' ' ')
+ 		if [[ $1 == "all" || $1 == "complex" ]]; then
+ 			complex_type="all"
+ 		fi
+diff --git a/prov/lnx/src/lnx_ep.c b/prov/lnx/src/lnx_ep.c
+index 5e5b24a29..10942fe9f 100644
+--- a/prov/lnx/src/lnx_ep.c
++++ b/prov/lnx/src/lnx_ep.c
+@@ -414,6 +414,12 @@ static ssize_t lnx_ep_cancel(fid_t fid, void *context)
+ 	return rc;
+ }
+ 
++static int lnx_ep_getopt(fid_t fid, int level, int optname,
++		         void *optval, size_t *optlen)
++{
++	return -FI_ENOPROTOOPT;
++}
++
+ static int lnx_ep_setopt(fid_t fid, int level, int optname, const void *optval,
+ 			  size_t optlen)
+ {
+@@ -444,7 +450,7 @@ struct fi_ops_ep lnx_ep_ops = {
+ 	.cancel = lnx_ep_cancel,
+ 	/* can't get opt, because there is no way to report multiple
+ 	 * options for the different links */
+-	.getopt = fi_no_getopt,
++	.getopt = lnx_ep_getopt,
+ 	.setopt = lnx_ep_setopt,
+ 	.tx_ctx = fi_no_tx_ctx,
+ 	.rx_ctx = fi_no_rx_ctx,
+diff --git a/prov/lnx/src/lnx_init.c b/prov/lnx/src/lnx_init.c
+index c10f88390..9559d04da 100644
+--- a/prov/lnx/src/lnx_init.c
++++ b/prov/lnx/src/lnx_init.c
+@@ -326,6 +326,7 @@ static int lnx_generate_link_info(struct fi_info **info, const struct fi_info *h
+ 	struct lnx_fi_cache_entry *e;
+ 	size_t min_of_max_msg_size = SIZE_MAX;
+ 	size_t min_iov_limit = LNX_IOV_LIMIT;
++	size_t min_rx_size = SIZE_MAX, min_tx_size = SIZE_MAX;
+ 	int mr_mode = 0;
+ 	int len;
+ 	int str_len = 1024;
+@@ -379,6 +380,10 @@ static int lnx_generate_link_info(struct fi_info **info, const struct fi_info *h
+ 
+ 			if (e->fi->tx_attr->iov_limit < min_iov_limit)
+ 				min_iov_limit = e->fi->tx_attr->iov_limit;
++			if (e->fi->rx_attr->size < min_rx_size)
++				min_rx_size = e->fi->rx_attr->size;
++			if (e->fi->tx_attr->size < min_tx_size)
++				min_tx_size = e->fi->tx_attr->size;
+ 
+ 			for (itr = e->fi; itr; itr = itr->next) {
+ 				len = strlen(itr->domain_attr->name) + 1;
+@@ -431,6 +436,8 @@ static int lnx_generate_link_info(struct fi_info **info, const struct fi_info *h
+ 		next->caps = caps & hints->caps;
+ 		next->tx_attr->iov_limit = min_iov_limit;
+ 		next->ep_attr->max_msg_size = min_of_max_msg_size;
++		next->rx_attr->size = min_rx_size;
++		next->tx_attr->size = min_tx_size;
+ 
+ 		if (!next)
+ 			return -FI_ENOMEM;

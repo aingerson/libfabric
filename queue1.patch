@@ -1,0 +1,974 @@
+commit 29e82dcb32ba4c64766f34c90e8e59f93395af13
+Author: Alexia Ingerson <alexia.ingerson@intel.com>
+Date:   Tue Mar 4 15:31:27 2025 -0800
+
+diff --git a/include/ofi_atom.h b/include/ofi_atom.h
+index 016d168755..db828fb265 100644
+--- a/include/ofi_atom.h
++++ b/include/ofi_atom.h
+@@ -119,12 +119,28 @@ typedef atomic_long	ofi_atomic_int64_t;
+ 								 memory_order_acq_rel) + val;		\
+ 	}												\
+ 	static inline											\
++	int##radix##_t ofi_atomic_add_explicit##radix(ofi_atomic##radix##_t *atomic,			\
++						      int##radix##_t val,				\
++						      int memmodel)					\
++	{												\
++		ATOMIC_IS_INITIALIZED(atomic);								\
++		return (int##radix##_t)atomic_fetch_add_explicit(&atomic->val, val, memmodel);		\
++	}												\
++	static inline											\
+ 	int##radix##_t ofi_atomic_sub##radix(ofi_atomic##radix##_t *atomic, int##radix##_t val)		\
+ 	{												\
+ 		ATOMIC_IS_INITIALIZED(atomic);								\
+ 		return (int##radix##_t)atomic_fetch_sub_explicit(&atomic->val, val,			\
+ 								 memory_order_acq_rel) - val;		\
+ 	}												\
++	static inline											\
++	int##radix##_t ofi_atomic_sub_explicit##radix(ofi_atomic##radix##_t *atomic,			\
++						      int##radix##_t val,				\
++						      int memmodel)					\
++	{												\
++		ATOMIC_IS_INITIALIZED(atomic);								\
++		return (int##radix##_t)atomic_fetch_sub_explicit(&atomic->val, val, memmodel);		\
++	}												\
+ 	/**												\
+ 	 *  Compare and swap, strong version								\
+ 	 *												\
+diff --git a/include/ofi_atomic_queue.h b/include/ofi_atomic_queue.h
+index 0f6afbc005..9e37979a55 100644
+--- a/include/ofi_atomic_queue.h
++++ b/include/ofi_atomic_queue.h
+@@ -94,14 +94,19 @@ extern "C" {
+ 
+ #define OFI_CACHE_LINE_SIZE (64)
+ 
++enum {
++	OFI_AQ_FREE = 0,
++	OFI_AQ_READY,
++	OFI_AQ_NOOP,
++};
++
+ /*
+  * Base address of atomic queue must be cache line aligned to maximize atomic
+  * value perforamnce benefits
+  */
+ #define OFI_DECLARE_ATOMIC_Q(entrytype, name)			\
+ struct name ## _entry {						\
+-	ofi_atomic64_t	seq;					\
+-	bool		noop;					\
++	ofi_atomic64_t	state;					\
+ 	entrytype	buf;					\
+ } __attribute__((__aligned__(64)));				\
+ 								\
+@@ -109,12 +114,18 @@ struct name {							\
+ 	ofi_atomic64_t	write_pos;				\
+ 	uint8_t		pad0[OFI_CACHE_LINE_SIZE -		\
+ 			     sizeof(ofi_atomic64_t)];		\
+-	ofi_atomic64_t	read_pos;				\
++	int64_t		read_pos;				\
+ 	uint8_t		pad1[OFI_CACHE_LINE_SIZE -		\
++			     sizeof(int64_t)];			\
++	ofi_atomic64_t	claim_avail;				\
++	uint8_t		pad2[OFI_CACHE_LINE_SIZE -		\
++			     sizeof(ofi_atomic64_t)];		\
++	ofi_atomic64_t	discard_avail;				\
++	uint8_t		pad3[OFI_CACHE_LINE_SIZE -		\
+ 			     sizeof(ofi_atomic64_t)];		\
+ 	int		size;					\
+ 	int		size_mask;				\
+-	uint8_t		pad2[OFI_CACHE_LINE_SIZE -		\
++	uint8_t		pad4[OFI_CACHE_LINE_SIZE -		\
+ 			     (sizeof(int) * 2)];		\
+ 	struct name ## _entry entry[];				\
+ } __attribute__((__aligned__(64)));				\
+@@ -127,9 +138,11 @@ static inline void name ## _init(struct name *aq, size_t size)	\
+ 	aq->size = size;					\
+ 	aq->size_mask = aq->size - 1;				\
+ 	ofi_atomic_initialize64(&aq->write_pos, 0);		\
+-	ofi_atomic_initialize64(&aq->read_pos, 0);		\
++	aq->read_pos = 0;					\
++	ofi_atomic_initialize64(&aq->discard_avail, 0);	\
++	ofi_atomic_initialize64(&aq->claim_avail, size);		\
+ 	for (i = 0; i < size; i++)				\
+-		ofi_atomic_initialize64(&aq->entry[i].seq, i);	\
++		ofi_atomic_initialize64(&aq->entry[i].state, OFI_AQ_FREE);\
+ }								\
+ 								\
+ static inline struct name * name ## _create(size_t size)	\
+@@ -148,94 +161,105 @@ static inline void name ## _free(struct name *aq)		\
+ {								\
+ 	free(aq);						\
+ }								\
+-static inline int name ## _next(struct name *aq,		\
+-		entrytype **buf, int64_t *pos)			\
++static inline bool name ## _claim(struct name *aq)		\
+ {								\
+-	struct name ## _entry *ce;				\
+-	int64_t diff, seq;					\
+-	*pos = ofi_atomic_load_explicit64(&aq->write_pos,	\
+-				    memory_order_relaxed);	\
+-	for (;;) {						\
+-		ce = &aq->entry[*pos & aq->size_mask];		\
+-		seq = ofi_atomic_load_explicit64(&(ce->seq),	\
+-			memory_order_acquire);			\
+-		diff = seq - *pos;				\
+-		if (diff == 0) {				\
+-			if (ofi_atomic_compare_exchange_weak64(	\
+-				&aq->write_pos, pos,		\
+-				*pos + 1))			\
+-				break;				\
+-		} else if (diff < 0) {				\
+-			return -FI_ENOENT;			\
+-		} else {					\
+-			*pos = ofi_atomic_load_explicit64(	\
+-				&aq->write_pos,			\
+-				memory_order_relaxed);		\
+-		}						\
++	int64_t avail, discard_avail;				\
++	avail = ofi_atomic_sub_explicit64(&aq->claim_avail, 1,	\
++					  memory_order_relaxed);\
++	if (avail > 0)						\
++		return true;					\
++								\
++	discard_avail = ofi_atomic_load_explicit64(		\
++					&aq->discard_avail,	\
++					memory_order_acquire);	\
++	if (discard_avail) {					\
++		if (!ofi_atomic_compare_exchange_weak64(	\
++					&aq->discard_avail,	\
++					&discard_avail, 0))	\
++			goto out;				\
++		ofi_atomic_add_explicit64(&aq->claim_avail,	\
++					  discard_avail,	\
++					  memory_order_relaxed);\
++	}							\
++out:								\
++	ofi_atomic_add_explicit64(&aq->claim_avail, 1,		\
++				  memory_order_relaxed);	\
++	return false;						\
++								\
++}							\
++static inline entrytype *name ## _assign(struct name *aq)	\
++{								\
++	int64_t pos;						\
++	while (1) {						\
++		pos = ofi_atomic_load_explicit64(		\
++					&aq->write_pos,		\
++					memory_order_acquire);	\
++		if (ofi_atomic_compare_exchange_weak64(		\
++					&aq->write_pos, &pos,	\
++					pos + 1))		\
++			break;					\
+ 	}							\
+-	*buf = &ce->buf;					\
+-	return FI_SUCCESS;					\
++	return &aq->entry[pos & aq->size_mask].buf;		\
++}								\
++static inline entrytype *name ## _claim_assign(struct name *aq)	\
++{								\
++	if (name ## _claim(aq)) {				\
++		return name ## _assign(aq);			\
++	}							\
++	assert(0);					\
++	return NULL;						\
+ }								\
+ static inline void name ## _release(struct name *aq,		\
+-			entrytype *buf,				\
+-			int64_t pos)				\
++				    entrytype *buf)		\
+ {								\
++	int64_t state = OFI_AQ_FREE;				\
+ 	struct name ## _entry *ce;				\
+ 	ce = container_of(buf, struct name ## _entry, buf);	\
+-	ofi_atomic_store_explicit64(&ce->seq,			\
+-			      pos + aq->size,			\
+-			      memory_order_release);		\
++	ofi_atomic_store_explicit64(&ce->state,	state,	\
++				    memory_order_release);	\
++	aq->read_pos++;					\
++}								\
++static inline void name ## _discard(struct name *aq)		\
++{								\
++	ofi_atomic_add_explicit64(&aq->discard_avail, 1,		\
++		memory_order_relaxed);				\
++}								\
++static inline void name ## _release_discard(struct name *aq,	\
++					    entrytype *buf)	\
++{								\
++	name ## _release(aq, buf);				\
++	name ## _discard(aq);					\
+ }								\
+-static inline int name ## _head(struct name *aq,		\
+-		entrytype **buf, int64_t *pos)			\
++static inline entrytype *name ## _head(struct name *aq)		\
+ {								\
+-	int64_t diff, seq;					\
+ 	struct name ## _entry *ce;				\
++	int64_t state;					\
+ again:								\
+-	*pos = ofi_atomic_load_explicit64(&aq->read_pos,	\
+-			memory_order_relaxed);			\
+-	for (;;) {						\
+-		ce = &aq->entry[*pos & aq->size_mask];		\
+-		seq = ofi_atomic_load_explicit64(&(ce->seq),	\
+-			memory_order_acquire);			\
+-		diff = seq - (*pos + 1);			\
+-		if (diff == 0) {				\
+-			if (ofi_atomic_compare_exchange_weak64(	\
+-				&aq->read_pos, pos,		\
+-				*pos + 1))			\
+-				break;				\
+-		} else if (diff < 0) {				\
+-			return -FI_ENOENT;			\
+-		} else {					\
+-			*pos = ofi_atomic_load_explicit64(	\
+-				&aq->read_pos,			\
+-				memory_order_relaxed);		\
+-		}						\
+-	}							\
+-	*buf = &ce->buf;					\
+-	if (ce->noop) {						\
+-		ce->noop = false;				\
+-		name ##_release(aq, *buf, *pos);		\
++	ce = &aq->entry[aq->read_pos & aq->size_mask];		\
++	state = ofi_atomic_load_explicit64(&ce->state,		\
++					   memory_order_acquire);\
++	if (state == OFI_AQ_FREE)				\
++		return NULL;					\
++	if (state == OFI_AQ_NOOP) {				\
++		name ## _release_discard(aq, &ce->buf);		\
+ 		goto again;					\
+ 	}							\
+-	return FI_SUCCESS;					\
++	return &ce->buf;					\
+ }								\
+-static inline void name ## _commit(entrytype *buf,		\
+-				int64_t pos)			\
++static inline void name ## _commit(entrytype *buf)		\
+ {								\
+ 	struct name ## _entry *ce;				\
++	int64_t state = OFI_AQ_READY;					\
+ 	ce = container_of(buf, struct name ## _entry, buf);	\
+-	ofi_atomic_store_explicit64(&ce->seq, pos + 1,		\
+-			      memory_order_release);		\
++	ofi_atomic_store_explicit64(&ce->state, state,	\
++				    memory_order_release);	\
+ }								\
+-static inline void name ## _discard(entrytype *buf,		\
+-				int64_t pos)			\
++static inline void name ## _cancel(entrytype *buf)		\
+ {								\
+ 	struct name ## _entry *ce;				\
+ 	ce = container_of(buf, struct name ## _entry, buf);	\
+-	ce->noop = true;					\
+-	ofi_atomic_store_explicit64(&ce->seq, pos + 1,		\
+-			      memory_order_release);		\
++	ofi_atomic_store_explicit64(&ce->state, OFI_AQ_NOOP,	\
++				    memory_order_release);	\
+ }								\
+ void dummy ## name (void) /* work-around global ; scope */
+ 
+diff --git a/include/ofi_mem.h b/include/ofi_mem.h
+index 3c9b00b191..b88b253efb 100644
+--- a/include/ofi_mem.h
++++ b/include/ofi_mem.h
+@@ -263,8 +263,8 @@ static inline void smr_freestack_push_by_offset(struct smr_freestack *fs,
+ static inline int16_t smr_freestack_get_index(struct smr_freestack *fs,
+ 					      char *local_p)
+ {
+-	return (local_p - ((char*) fs + fs->entry_base_offset)) /
+-			fs->object_size;
++	uint64_t offset = ((char*) local_p - (char*) fs);
++	return (offset - fs->entry_base_offset) / fs->object_size;
+ }
+ 
+ /* Push by object */
+diff --git a/prov/shm/src/smr.h b/prov/shm/src/smr.h
+index 0b061d8df3..2edf599857 100644
+--- a/prov/shm/src/smr.h
++++ b/prov/shm/src/smr.h
+@@ -117,13 +117,11 @@ static inline void smr_return_cmd(struct smr_ep *ep, struct smr_cmd *cmd)
+ {
+ 	struct smr_region *peer_smr = smr_peer_region(ep, cmd->hdr.rx_id);
+ 	uintptr_t peer_ptr;
+-	int64_t pos;
+ 	struct smr_return_entry *queue_entry;
+-	int ret;
+ 
+-	ret = smr_return_queue_next(smr_return_queue(peer_smr), &queue_entry,
+-				    &pos);
+-	if (ret == -FI_ENOENT) {
++	//return queue has built in claim
++	queue_entry = smr_return_queue_assign(smr_return_queue(peer_smr));
++	if (!queue_entry) {
+ 		/* return queue runs in parallel to command stack
+ 		 * ie we will never run out of space
+ 		 */
+@@ -136,7 +134,7 @@ static inline void smr_return_cmd(struct smr_ep *ep, struct smr_cmd *cmd)
+ 	       peer_smr->total_size);
+ 	queue_entry->ptr = peer_ptr;
+ 
+-	smr_return_queue_commit(queue_entry, pos);
++	smr_return_queue_commit(queue_entry);
+ }
+ 
+ struct smr_env {
+diff --git a/prov/shm/src/smr_atomic.c b/prov/shm/src/smr_atomic.c
+index b3821c21ec..0dd1010f24 100644
+--- a/prov/shm/src/smr_atomic.c
++++ b/prov/shm/src/smr_atomic.c
+@@ -175,7 +175,7 @@ static ssize_t smr_generic_atomic(
+ 	struct iovec compare_iov[SMR_IOV_LIMIT];
+ 	struct iovec result_iov[SMR_IOV_LIMIT];
+ 	uint16_t smr_flags = 0;
+-	int64_t tx_id, rx_id, pos;
++	int64_t tx_id, rx_id;
+ 	int proto;
+ 	ssize_t ret = 0;
+ 	size_t total_len;
+@@ -196,8 +196,8 @@ static ssize_t smr_generic_atomic(
+ 		return -FI_EAGAIN;
+ 
+ 	ofi_genlock_lock(&ep->util_ep.lock);
+-	ret = smr_cmd_queue_next(smr_cmd_queue(peer_smr), &ce, &pos);
+-	if (ret == -FI_ENOENT) {
++	ce = smr_cmd_queue_claim_assign(smr_cmd_queue(peer_smr));
++	if (!ce) {
+ 		ret = -FI_EAGAIN;
+ 		goto unlock;
+ 	}
+@@ -241,7 +241,7 @@ static ssize_t smr_generic_atomic(
+ 				     total_len, cmd);
+ 	} else {
+ 		if (smr_freestack_isempty(smr_cmd_stack(ep->region))) {
+-			smr_cmd_queue_discard(ce, pos);
++			smr_cmd_queue_cancel(ce);
+ 			ret = -FI_EAGAIN;
+ 			goto unlock;
+ 		}
+@@ -257,7 +257,7 @@ static ssize_t smr_generic_atomic(
+ 				compare_iov, compare_count, total_len, context,
+ 				smr_flags, cmd);
+ 		if (ret) {
+-			smr_cmd_queue_discard(ce, pos);
++			smr_cmd_queue_cancel(ce);
+ 			goto unlock;
+ 		}
+ 	}
+@@ -271,7 +271,7 @@ static ssize_t smr_generic_atomic(
+ 	}
+ 
+ 	smr_format_rma_ioc(cmd, rma_ioc, rma_count);
+-	smr_cmd_queue_commit(ce, pos);
++	smr_cmd_queue_commit(ce);
+ unlock:
+ 	ofi_genlock_unlock(&ep->util_ep.lock);
+ 	return ret;
+@@ -349,7 +349,7 @@ static ssize_t smr_atomic_inject(
+ 	struct smr_region *peer_smr;
+ 	struct iovec iov;
+ 	struct fi_rma_ioc rma_ioc;
+-	int64_t id, peer_id, pos;
++	int64_t id, peer_id;
+ 	ssize_t ret = -FI_EAGAIN;
+ 	size_t total_len;
+ 	int proto;
+@@ -370,8 +370,8 @@ static ssize_t smr_atomic_inject(
+ 		goto unlock;
+ 	}
+ 
+-	ret = smr_cmd_queue_next(smr_cmd_queue(peer_smr), &ce, &pos);
+-	if (ret == -FI_ENOENT) {
++	ce = smr_cmd_queue_claim_assign(smr_cmd_queue(peer_smr));
++	if (!ce) {
+ 		ret = -FI_EAGAIN;
+ 		goto unlock;
+ 	}
+@@ -396,7 +396,7 @@ static ssize_t smr_atomic_inject(
+ 	} else {
+ 		proto = smr_proto_inject;
+ 		if (smr_freestack_isempty(smr_cmd_stack(ep->region))) {
+-			smr_cmd_queue_discard(ce, pos);
++			smr_cmd_queue_cancel(ce);
+ 			ret = -FI_EAGAIN;
+ 			goto unlock;
+ 		}
+@@ -409,13 +409,13 @@ static ssize_t smr_atomic_inject(
+ 					   &iov, 1, NULL, NULL, 0, NULL, NULL,
+ 					   0, total_len, NULL, 0, cmd);
+ 		if (ret) {
+-			smr_cmd_queue_discard(ce, pos);
++			smr_cmd_queue_cancel(ce);
+ 			goto unlock;
+ 		}
+ 	}
+ 
+ 	smr_format_rma_ioc(cmd, &rma_ioc, 1);
+-	smr_cmd_queue_commit(ce, pos);
++	smr_cmd_queue_commit(ce);
+ 
+ 	if (proto == smr_proto_inline)
+ 		ofi_ep_peer_tx_cntr_inc(&ep->util_ep, ofi_op_atomic);
+diff --git a/prov/shm/src/smr_attr.c b/prov/shm/src/smr_attr.c
+index 40bac964d3..97e0d14312 100644
+--- a/prov/shm/src/smr_attr.c
++++ b/prov/shm/src/smr_attr.c
+@@ -43,12 +43,14 @@
+ 			 FI_TRANSMIT_COMPLETE | FI_DELIVERY_COMPLETE)
+ #define SMR_RX_OP_FLAGS (FI_COMPLETION | FI_MULTI_RECV)
+ 
++#define SMR_TX_SIZE 1024
++
+ struct fi_tx_attr smr_tx_attr = {
+ 	.caps = SMR_TX_CAPS,
+ 	.op_flags = SMR_TX_OP_FLAGS,
+ 	.msg_order = SMR_RMA_ORDER | FI_ORDER_SAS,
+ 	.inject_size = SMR_INJECT_SIZE,
+-	.size = 1024,
++	.size = SMR_TX_SIZE,
+ 	.iov_limit = SMR_IOV_LIMIT,
+ 	.rma_iov_limit = SMR_IOV_LIMIT
+ };
+@@ -57,7 +59,7 @@ struct fi_rx_attr smr_rx_attr = {
+ 	.caps = SMR_RX_CAPS,
+ 	.op_flags = SMR_RX_OP_FLAGS,
+ 	.msg_order = SMR_RMA_ORDER | FI_ORDER_SAS,
+-	.size = 1024,
++	.size = SMR_TX_SIZE,
+ 	.iov_limit = SMR_IOV_LIMIT
+ };
+ 
+@@ -66,7 +68,7 @@ struct fi_tx_attr smr_hmem_tx_attr = {
+ 	.op_flags = SMR_TX_OP_FLAGS,
+ 	.msg_order = SMR_RMA_ORDER | FI_ORDER_SAS,
+ 	.inject_size = 0,
+-	.size = 1024,
++	.size = SMR_TX_SIZE,
+ 	.iov_limit = SMR_IOV_LIMIT,
+ 	.rma_iov_limit = SMR_IOV_LIMIT
+ };
+@@ -75,7 +77,7 @@ struct fi_rx_attr smr_hmem_rx_attr = {
+ 	.caps = SMR_HMEM_RX_CAPS,
+ 	.op_flags = SMR_RX_OP_FLAGS,
+ 	.msg_order = SMR_RMA_ORDER | FI_ORDER_SAS,
+-	.size = 1024,
++	.size = SMR_TX_SIZE,
+ 	.iov_limit = SMR_IOV_LIMIT
+ };
+ 
+diff --git a/prov/shm/src/smr_ep.c b/prov/shm/src/smr_ep.c
+index 2894c7c099..fa5682ff77 100644
+--- a/prov/shm/src/smr_ep.c
++++ b/prov/shm/src/smr_ep.c
+@@ -165,16 +165,14 @@ static void smr_send_name(struct smr_ep *ep, int64_t id)
+ {
+ 	struct smr_region *peer_smr;
+ 	struct smr_cmd_entry *ce;
+-	int64_t pos;
+-	int ret;
+ 
+ 	peer_smr = smr_peer_region(ep, id);
+ 
+ 	if (smr_peer_data(ep->region)[id].name_sent)
+ 		return;
+ 
+-	ret = smr_cmd_queue_next(smr_cmd_queue(peer_smr), &ce, &pos);
+-	if (ret == -FI_ENOENT)
++	ce = smr_cmd_queue_claim_assign(smr_cmd_queue(peer_smr));
++	if (!ce)
+ 		return;
+ 
+ 	ce->ptr = smr_peer_to_peer(ep, id, (uintptr_t) &ce->cmd);
+@@ -187,7 +185,7 @@ static void smr_send_name(struct smr_ep *ep, int64_t id)
+ 	memcpy(ce->cmd.data.msg, ep->name, ce->cmd.hdr.size);
+ 
+ 	smr_peer_data(ep->region)[id].name_sent = 1;
+-	smr_cmd_queue_commit(ce, pos);
++	smr_cmd_queue_commit(ce);
+ }
+ 
+ int64_t smr_verify_peer(struct smr_ep *ep, fi_addr_t fi_addr)
+@@ -370,6 +368,7 @@ static int smr_format_sar(struct smr_ep *ep, struct smr_cmd *cmd,
+ 		ret = pend->sar_copy_fn(ep, pend);
+ 		if (ret < 0 && ret != -FI_EBUSY) {
+ 			for (i = cmd->data.buf_batch_size - 1; i >= 0; i--) {
++				printf("SAR, shouldn't be here\n");
+ 				smr_freestack_push_by_index(
+ 						smr_sar_pool(ep->region),
+ 						cmd->data.sar[i]);
+diff --git a/prov/shm/src/smr_msg.c b/prov/shm/src/smr_msg.c
+index bdf3fe57f6..18e1573084 100644
+--- a/prov/shm/src/smr_msg.c
++++ b/prov/shm/src/smr_msg.c
+@@ -79,7 +79,7 @@ static ssize_t smr_generic_sendmsg(struct smr_ep *ep, const struct iovec *iov,
+ 				   uint64_t op_flags)
+ {
+ 	struct smr_region *peer_smr;
+-	int64_t tx_id, rx_id, pos;
++	int64_t tx_id, rx_id;
+ 	ssize_t ret = 0;
+ 	size_t total_len;
+ 	int proto;
+@@ -98,8 +98,8 @@ static ssize_t smr_generic_sendmsg(struct smr_ep *ep, const struct iovec *iov,
+ 	if (smr_peer_data(ep->region)[tx_id].sar_status)
+ 		return -FI_EAGAIN;
+ 
+-	ret = smr_cmd_queue_next(smr_cmd_queue(peer_smr), &ce, &pos);
+-	if (ret == -FI_ENOENT)
++	ce = smr_cmd_queue_claim_assign(smr_cmd_queue(peer_smr));
++	if (!ce)
+ 		return -FI_EAGAIN;
+ 
+ 	ofi_genlock_lock(&ep->util_ep.lock);
+@@ -113,11 +113,10 @@ static ssize_t smr_generic_sendmsg(struct smr_ep *ep, const struct iovec *iov,
+ 
+ 	if (proto != smr_proto_inline) {
+ 		if (smr_freestack_isempty(smr_cmd_stack(ep->region))) {
+-			smr_cmd_queue_discard(ce, pos);
++			smr_cmd_queue_cancel(ce);
+ 			ret = -FI_EAGAIN;
+ 			goto unlock;
+ 		}
+-
+ 		cmd = smr_freestack_pop(smr_cmd_stack(ep->region));
+ 		assert(cmd);
+ 		ce->ptr = smr_local_to_peer(ep, tx_id, rx_id, (uintptr_t) cmd);
+@@ -130,12 +129,13 @@ static ssize_t smr_generic_sendmsg(struct smr_ep *ep, const struct iovec *iov,
+ 				  op_flags, (struct ofi_mr **) desc, iov,
+ 				  iov_count, total_len, context, cmd);
+ 	if (ret) {
+-		smr_cmd_queue_discard(ce, pos);
++		smr_cmd_queue_cancel(ce);
+ 		if (proto != smr_proto_inline)
+ 			smr_freestack_push(smr_cmd_stack(ep->region), cmd);
++		ret = -FI_EAGAIN;
+ 		goto unlock;
+ 	}
+-	smr_cmd_queue_commit(ce, pos);
++	smr_cmd_queue_commit(ce);
+ 
+ 	if (proto != smr_proto_inline)
+ 		goto unlock;
+@@ -198,7 +198,7 @@ static ssize_t smr_generic_inject(struct fid_ep *ep_fid, const void *buf,
+ {
+ 	struct smr_ep *ep;
+ 	struct smr_region *peer_smr;
+-	int64_t tx_id, rx_id, pos;
++	int64_t tx_id, rx_id;
+ 	ssize_t ret = 0;
+ 	struct iovec msg_iov;
+ 	int proto;
+@@ -225,8 +225,8 @@ static ssize_t smr_generic_inject(struct fid_ep *ep_fid, const void *buf,
+ 		goto unlock;
+ 	}
+ 
+-	ret = smr_cmd_queue_next(smr_cmd_queue(peer_smr), &ce, &pos);
+-	if (ret == -FI_ENOENT) {
++	ce = smr_cmd_queue_claim_assign(smr_cmd_queue(peer_smr));
++	if (!ce) {
+ 		ret = -FI_EAGAIN;
+ 		goto unlock;
+ 	}
+@@ -238,7 +238,7 @@ static ssize_t smr_generic_inject(struct fid_ep *ep_fid, const void *buf,
+ 	} else {
+ 		proto = smr_proto_inject;
+ 		if (smr_freestack_isempty(smr_cmd_stack(ep->region))) {
+-			smr_cmd_queue_discard(ce, pos);
++			smr_cmd_queue_cancel(ce);
+ 			ret = -FI_EAGAIN;
+ 			goto unlock;
+ 		}
+@@ -251,11 +251,14 @@ static ssize_t smr_generic_inject(struct fid_ep *ep_fid, const void *buf,
+ 	ret = smr_send_ops[proto](ep, peer_smr, tx_id, rx_id, op, tag, data,
+ 				  op_flags, NULL, &msg_iov, 1, len, NULL, cmd);
+ 	if (ret) {
+-		smr_cmd_queue_discard(ce, pos);
++		if (proto != smr_proto_inline) {
++			smr_freestack_push(smr_cmd_stack(ep->region), cmd);
++		}
++		smr_cmd_queue_cancel(ce);
+ 		ret = -FI_EAGAIN;
+ 		goto unlock;
+ 	}
+-	smr_cmd_queue_commit(ce, pos);
++	smr_cmd_queue_commit(ce);
+ 
+ 	if (proto == smr_proto_inline)
+ 		ofi_ep_peer_tx_cntr_inc(&ep->util_ep, op);
+diff --git a/prov/shm/src/smr_progress.c b/prov/shm/src/smr_progress.c
+index a17b2dbc33..1c8fe49cf8 100644
+--- a/prov/shm/src/smr_progress.c
++++ b/prov/shm/src/smr_progress.c
+@@ -35,39 +35,14 @@
+ #include "ofi_atomic.h"
+ #include "ofi_mb.h"
+ 
+-static void smr_progress_overflow(struct smr_ep *ep)
+-{
+-	struct smr_cmd_entry *ce;
+-	struct smr_region *peer_smr;
+-	struct smr_cmd *cmd;
+-	int64_t pos;
+-	struct slist_entry *entry;
+-	int ret;
+-
+-	entry = ep->overflow_list.head;
+-	while (entry) {
+-		cmd = (struct smr_cmd *) entry;
+-		peer_smr = smr_peer_region(ep, cmd->hdr.tx_id);
+-		ret = smr_cmd_queue_next(smr_cmd_queue(peer_smr), &ce, &pos);
+-		if (ret == -FI_ENOENT)
+-			return;
+-
+-		ce->ptr = smr_local_to_peer(ep, cmd->hdr.tx_id,
+-					    cmd->hdr.rx_id, (uintptr_t) cmd);
+-
+-		slist_remove_head(&ep->overflow_list);
+-		smr_cmd_queue_commit(ce, pos);
+-		entry = ep->overflow_list.head;
+-	}
+-}
+-
+ static void smr_try_send_cmd(struct smr_ep *ep, struct smr_cmd *cmd)
+ {
+ 	cmd->hdr.entry = 0;
+ 	slist_insert_tail((struct slist_entry *) &cmd->hdr.entry,
+ 			  &ep->overflow_list);
+ 
+-	smr_progress_overflow(ep);
++	//TODO
++	//smr_progress_overflow(ep);
+ }
+ 
+ static inline void smr_free_sar_bufs(struct smr_ep *ep, struct smr_cmd *cmd,
+@@ -76,6 +51,8 @@ static inline void smr_free_sar_bufs(struct smr_ep *ep, struct smr_cmd *cmd,
+ 	int i;
+ 
+ 	for (i = cmd->data.buf_batch_size - 1; i >= 0; i--) {
++		printf("sar free shouldn't be here\n");
++
+ 		smr_freestack_push_by_index(smr_sar_pool(ep->region),
+ 					    cmd->data.sar[i]);
+ 	}
+@@ -172,13 +149,11 @@ static void smr_progress_return(struct smr_ep *ep)
+ 	struct smr_return_entry *queue_entry;
+ 	struct smr_cmd *cmd;
+ 	struct smr_pend_entry *pending;
+-	int64_t pos;
+ 	int ret;
+ 
+ 	while (1) {
+-		ret = smr_return_queue_head(smr_return_queue(ep->region),
+-					    &queue_entry, &pos);
+-		if (ret == -FI_ENOENT)
++		queue_entry = smr_return_queue_head(smr_return_queue(ep->region));
++		if (!queue_entry)
+ 			break;
+ 
+ 		cmd = (struct smr_cmd *) queue_entry->ptr;
+@@ -210,7 +185,7 @@ static void smr_progress_return(struct smr_ep *ep)
+ 			smr_freestack_push(smr_cmd_stack(ep->region), cmd);
+ 		}
+ 		smr_return_queue_release(smr_return_queue(ep->region),
+-					 queue_entry, pos);
++					 queue_entry);
+ 	}
+ }
+ 
+@@ -267,7 +242,6 @@ static ssize_t smr_progress_inject(struct smr_ep *ep, struct smr_cmd *cmd,
+ 	}
+ 
+ 	cmd->hdr.status = ret;
+-	smr_return_cmd(ep, cmd);
+ 	return ret;
+ }
+ 
+@@ -289,7 +263,6 @@ static ssize_t smr_progress_iov(struct smr_ep *ep, struct smr_cmd *cmd,
+ 			       peer_smr->pid, cmd->hdr.op == ofi_op_read_req,
+ 			       xpmem);
+ 	cmd->hdr.status = ret;
+-	smr_return_cmd(ep, cmd);
+ 	return ret;
+ }
+ 
+@@ -439,6 +412,7 @@ static ssize_t smr_progress_sar(struct smr_ep *ep, struct smr_cmd *cmd,
+ 	struct iovec sar_iov[SMR_IOV_LIMIT];
+ 	ssize_t ret = FI_SUCCESS;
+ 
++	printf("If you see this, I might break\n");
+ 	memcpy(sar_iov, iov, sizeof(*iov) * iov_count);
+ 	(void) ofi_truncate_iov(sar_iov, &iov_count, cmd->hdr.size);
+ 
+@@ -461,8 +435,6 @@ static ssize_t smr_progress_sar(struct smr_ep *ep, struct smr_cmd *cmd,
+ 		ret = FI_SUCCESS;
+ 	}
+ 
+-	if (!ret)
+-		smr_return_cmd(ep, cmd);
+ 	return ret;
+ }
+ 
+@@ -563,7 +535,7 @@ uncache:
+ 	ofi_mr_cache_delete(domain->ipc_cache, mr_entry);
+ out:
+ 	cmd->hdr.status = ret;
+-	smr_return_cmd(ep, cmd);
++	//smr_return_cmd(ep, cmd);
+ 	return ret;
+ }
+ 
+@@ -652,7 +624,7 @@ static int smr_progress_inline_atomic(struct smr_cmd *cmd, struct ofi_mr **mr,
+ 
+ static int smr_progress_inject_atomic(struct smr_cmd *cmd, struct ofi_mr **mr,
+ 				      struct fi_ioc *ioc, size_t ioc_count,
+-				      size_t *len, struct smr_ep *ep, int err)
++				      size_t *len, struct smr_ep *ep)
+ {
+ 	struct smr_inject_buf *tx_buf;
+ 	uint8_t *src, *comp;
+@@ -660,9 +632,6 @@ static int smr_progress_inject_atomic(struct smr_cmd *cmd, struct ofi_mr **mr,
+ 
+ 	tx_buf = smr_get_inject_buf(smr_peer_region(ep, cmd->hdr.rx_id), cmd);
+ 
+-	if (err)
+-		goto out;
+-
+ 	switch (cmd->hdr.op) {
+ 	case ofi_op_atomic_compare:
+ 		src = tx_buf->buf;
+@@ -684,12 +653,10 @@ static int smr_progress_inject_atomic(struct smr_cmd *cmd, struct ofi_mr **mr,
+ 
+ 	if (*len != cmd->hdr.size) {
+ 		FI_WARN(&smr_prov, FI_LOG_EP_CTRL, "recv truncated");
+-		err = -FI_ETRUNC;
++		return -FI_ETRUNC;
+ 	}
+ 
+-out:
+-	smr_return_cmd(ep, cmd);
+-	return err;
++	return FI_SUCCESS;
+ }
+ 
+ static int smr_start_common(struct smr_ep *ep, struct smr_cmd *cmd,
+@@ -731,7 +698,10 @@ static int smr_start_common(struct smr_ep *ep, struct smr_cmd *cmd,
+ 		ep->srx->owner_ops->free_entry(rx_entry);
+ 	}
+ 
+-	return 0;
++	//TODO fix SAR (DSA)
++	if (cmd->hdr.proto != smr_proto_inline)
++		smr_return_cmd(ep, cmd);
++	return ret;
+ }
+ 
+ static int smr_copy_saved(struct smr_cmd_ctx *cmd_ctx,
+@@ -1024,7 +994,7 @@ static int smr_progress_cmd_rma(struct smr_ep *ep, struct smr_cmd *cmd)
+ 
+ 	if (cmd->hdr.rx_ctx)
+ 		goto out;
+-			       
++
+ 	if (ret && ret != -FI_EBUSY) {
+ 		FI_WARN(&smr_prov, FI_LOG_EP_CTRL,
+ 			"error processing rma op\n");
+@@ -1044,6 +1014,8 @@ static int smr_progress_cmd_rma(struct smr_ep *ep, struct smr_cmd *cmd)
+ 	}
+ 
+ out:
++	if (cmd->hdr.proto != smr_proto_inline)
++		smr_return_cmd(ep, cmd);
+ 	return ret;
+ }
+ 
+@@ -1088,7 +1060,7 @@ static int smr_progress_cmd_atomic(struct smr_ep *ep, struct smr_cmd *cmd)
+ 		break;
+ 	case smr_proto_inject:
+ 		err = smr_progress_inject_atomic(cmd, mr, ioc, ioc_count,
+-						 &total_len, ep, ret);
++						 &total_len, ep);
+ 		break;
+ 	default:
+ 		FI_WARN(&smr_prov, FI_LOG_EP_CTRL,
+@@ -1117,6 +1089,8 @@ static int smr_progress_cmd_atomic(struct smr_ep *ep, struct smr_cmd *cmd)
+ 	}
+ 
+ out:
++	if (cmd->hdr.proto != smr_proto_inline)
++		smr_return_cmd(ep, cmd);
+ 	return err;
+ }
+ 
+@@ -1125,11 +1099,10 @@ static void smr_progress_cmd(struct smr_ep *ep)
+ 	struct smr_cmd_entry *ce;
+ 	struct smr_cmd *cmd;
+ 	int ret = 0;
+-	int64_t pos;
+ 
+ 	while (1) {
+-		ret = smr_cmd_queue_head(smr_cmd_queue(ep->region), &ce, &pos);
+-		if (ret == -FI_ENOENT)
++		ce = smr_cmd_queue_head(smr_cmd_queue(ep->region));
++		if (!ce)
+ 			break;
+ 
+ 		cmd = (struct smr_cmd *) ce->ptr;
+@@ -1159,7 +1132,12 @@ static void smr_progress_cmd(struct smr_ep *ep)
+ 				"unidentified operation type\n");
+ 			ret = -FI_EINVAL;
+ 		}
+-		smr_cmd_queue_release(smr_cmd_queue(ep->region), ce, pos);
++		// if (sar and sar not done)
++		// 	//release
++		// else
++		// 	//release/discard
++
++		smr_cmd_queue_release_discard(smr_cmd_queue(ep->region), ce);
+ 		if (ret) {
+ 			if (ret != -FI_EAGAIN) {
+ 				FI_WARN(&smr_prov, FI_LOG_EP_CTRL,
+@@ -1276,9 +1254,6 @@ void smr_ep_progress(struct util_ep *util_ep)
+ 
+ 	smr_progress_return(ep);
+ 
+-	if (!slist_empty(&ep->overflow_list))
+-		smr_progress_overflow(ep);
+-
+ 	smr_progress_cmd(ep);
+ 
+ 	/* always drive forward the ipc list since the completion is
+diff --git a/prov/shm/src/smr_rma.c b/prov/shm/src/smr_rma.c
+index bf370cf0c6..0b961f3374 100644
+--- a/prov/shm/src/smr_rma.c
++++ b/prov/shm/src/smr_rma.c
+@@ -61,10 +61,9 @@ static ssize_t smr_rma_fast(struct smr_ep *ep, struct smr_region *peer_smr,
+ 	struct smr_cmd_entry *ce;
+ 	size_t total_len;
+ 	int ret, i;
+-	int64_t pos;
+ 
+-	ret = smr_cmd_queue_next(smr_cmd_queue(peer_smr), &ce, &pos);
+-	if (ret == -FI_ENOENT)
++	ce = smr_cmd_queue_claim_assign(smr_cmd_queue(peer_smr));
++	if (!ce)
+ 		return -FI_EAGAIN;
+ 
+ 	memcpy(vma_iovec, iov, sizeof(*iov) * iov_count);
+@@ -85,7 +84,7 @@ static ssize_t smr_rma_fast(struct smr_ep *ep, struct smr_region *peer_smr,
+ 		FI_WARN(&smr_prov, FI_LOG_EP_CTRL, "error doing fast RMA\n");
+ 		ret = smr_write_err_comp(ep->util_ep.rx_cq, NULL, op_flags, 0,
+ 					 ret);
+-		smr_cmd_queue_discard(ce, pos);
++		smr_cmd_queue_cancel(ce);
+ 		return -FI_EAGAIN;
+ 	}
+ 
+@@ -94,7 +93,7 @@ static ssize_t smr_rma_fast(struct smr_ep *ep, struct smr_region *peer_smr,
+ 			    ofi_op_read_async, op_flags);
+ 
+ 	ce->ptr = smr_peer_to_peer(ep, tx_id, (uintptr_t) &ce->cmd);
+-	smr_cmd_queue_commit(ce, pos);
++	smr_cmd_queue_commit(ce);
+ 
+ 	ret = smr_complete_tx(ep, context, op, op_flags);
+ 	if (ret) {
+@@ -134,7 +133,6 @@ static ssize_t smr_generic_rma(
+ 	size_t total_len;
+ 	struct smr_cmd_entry *ce;
+ 	struct smr_cmd *cmd;
+-	int64_t pos;
+ 
+ 	assert(iov_count <= SMR_IOV_LIMIT);
+ 	assert(rma_count <= SMR_IOV_LIMIT);
+@@ -161,8 +159,8 @@ static ssize_t smr_generic_rma(
+ 		goto unlock;
+ 	}
+ 
+-	ret = smr_cmd_queue_next(smr_cmd_queue(peer_smr), &ce, &pos);
+-	if (ret == -FI_ENOENT) {
++	ce = smr_cmd_queue_claim_assign(smr_cmd_queue(peer_smr));
++	if (!ce) {
+ 		ret = -FI_EAGAIN;
+ 		goto unlock;
+ 	}
+@@ -174,7 +172,7 @@ static ssize_t smr_generic_rma(
+ 				 total_len, op_flags);
+ 	if (proto != smr_proto_inline) {
+ 		if (smr_freestack_isempty(smr_cmd_stack(ep->region))) {
+-			smr_cmd_queue_discard(ce, pos);
++			smr_cmd_queue_cancel(ce);
+ 			ret = -FI_EAGAIN;
+ 			goto unlock;
+ 		}
+@@ -191,12 +189,12 @@ static ssize_t smr_generic_rma(
+ 	if (ret) {
+ 		if (proto != smr_proto_inline)
+ 			smr_freestack_push(smr_cmd_stack(ep->region), cmd);
+-		smr_cmd_queue_discard(ce, pos);
++		smr_cmd_queue_cancel(ce);
+ 		goto unlock;
+ 	}
+ 
+ 	smr_add_rma_cmd(peer_smr, rma_iov, rma_count, cmd);
+-	smr_cmd_queue_commit(ce, pos);
++	smr_cmd_queue_commit(ce);
+ 
+ 	if (proto != smr_proto_inline || op == ofi_op_read_req)
+ 		goto unlock;
+@@ -333,7 +331,6 @@ static ssize_t smr_generic_rma_inject(
+ 	ssize_t ret = 0;
+ 	struct smr_cmd *cmd;
+ 	struct smr_cmd_entry *ce;
+-	int64_t pos;
+ 
+ 	assert(len <= SMR_INJECT_SIZE);
+ 	ep = container_of(ep_fid, struct smr_ep, util_ep.ep_fid.fid);
+@@ -356,8 +353,8 @@ static ssize_t smr_generic_rma_inject(
+ 
+ 	ofi_genlock_lock(&ep->util_ep.lock);
+ 
+-	ret = smr_cmd_queue_next(smr_cmd_queue(peer_smr), &ce, &pos);
+-	if (ret == -FI_ENOENT) {
++	ce = smr_cmd_queue_claim_assign(smr_cmd_queue(peer_smr));
++	if (!ce) {
+ 		ret = -FI_EAGAIN;
+ 		goto unlock;
+ 	}
+@@ -369,7 +366,7 @@ static ssize_t smr_generic_rma_inject(
+ 	} else {
+ 		proto = smr_proto_inject;
+ 		if (smr_freestack_isempty(smr_cmd_stack(ep->region))) {
+-			smr_cmd_queue_discard(ce, pos);
++			smr_cmd_queue_cancel(ce);
+ 			ret = -FI_EAGAIN;
+ 			goto unlock;
+ 		}
+@@ -384,11 +381,11 @@ static ssize_t smr_generic_rma_inject(
+ 	if (ret) {
+ 		if (proto != smr_proto_inline)
+ 			smr_freestack_push(smr_cmd_stack(ep->region), cmd);
+-		smr_cmd_queue_discard(ce, pos);
++		smr_cmd_queue_cancel(ce);
+ 		goto unlock;
+ 	}
+ 	smr_add_rma_cmd(peer_smr, &rma_iov, 1, cmd);
+-	smr_cmd_queue_commit(ce, pos);
++	smr_cmd_queue_commit(ce);
+ 
+ 	if (proto == smr_proto_inline)
+ 		ofi_ep_peer_tx_cntr_inc(&ep->util_ep, ofi_op_write);
+diff --git a/prov/shm/src/smr_util.h b/prov/shm/src/smr_util.h
+index 13764a184e..6fd4f8df71 100644
+--- a/prov/shm/src/smr_util.h
++++ b/prov/shm/src/smr_util.h
+@@ -57,7 +57,8 @@ extern "C" {
+  * This maximizes the inline payload. Increasing this value will increase the
+  * atomic queue entry to 576 bytes.
+  */
+-#define SMR_CMD_SIZE		488
++//512-64-8 = 440
++#define SMR_CMD_SIZE		440
+ 
+ /* reserves 0-255 for defined ops and room for new ops
+  * 256 and beyond reserved for ctrl ops
