@@ -18,7 +18,7 @@ def checkout_ci() {
   sh """
     rm -rf ${env.CUSTOM_WORKSPACE}/ci
     mkdir ${env.CUSTOM_WORKSPACE}/ci
-    git clone --recurse-submodules ${env.CI} ${env.CUSTOM_WORKSPACE}/ci
+    git clone --recurse-submodules ${env.AINGERSON_CI} ${env.CUSTOM_WORKSPACE}/ci
   """
 }
 
@@ -148,7 +148,7 @@ def skip() {
 pipeline {
   agent {
     node {
-      label 'cbj-main'
+      label 'cbj-dev'
       customWorkspace "workspace/${JOB_NAME}/${env.BUILD_NUMBER}"
     }
   }
