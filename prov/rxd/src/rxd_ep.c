@@ -489,6 +489,8 @@ void rxd_init_base_hdr(struct rxd_ep *rxd_ep, void **ptr,
 	hdr->seq_no = 0;
 	hdr->peer = (uint32_t) rxd_peer(rxd_ep, tx_entry->peer)->peer_addr;
 	hdr->flags = (uint16_t) tx_entry->flags;
+	hdr->ack_seq = rxd_peer(rxd_ep, tx_entry->peer)->rx_seq_no;
+
 
 	*ptr = (char *) (*ptr) + sizeof(*hdr);
 }
@@ -576,6 +578,7 @@ void rxd_ep_send_ack(struct rxd_ep *rxd_ep, fi_addr_t peer)
 	ack->base_hdr.type = RXD_ACK;
 	ack->base_hdr.peer = (uint32_t) rxd_peer(rxd_ep, peer)->peer_addr;
 	ack->base_hdr.seq_no = rxd_peer(rxd_ep, peer)->rx_seq_no;
+	ack->ext_hdr.tx_id = rxd_peer(rxd_ep, peer)->last_rx_ack;
 	ack->ext_hdr.rx_id = rxd_peer(rxd_ep, peer)->rx_window;
 	rxd_peer(rxd_ep, peer)->last_tx_ack = ack->base_hdr.seq_no;
 
@@ -628,6 +631,9 @@ static void rxd_close_peer(struct rxd_ep *ep, struct rxd_peer *peer)
 				x_entry, entry);
 		rxd_tx_entry_free(ep, x_entry);
 	}
+
+	if (peer->last_peer_rx_ack != peer->tx_seq_no - 1)
+		rxd_ep_send_ack(ep, peer->local_addr);
 
 	dlist_remove(&peer->entry);
 	peer->active = 0;
@@ -1165,6 +1171,7 @@ int rxd_create_peer(struct rxd_ep *ep, uint64_t rxd_addr)
 	peer->unacked_cnt = 0;
 	peer->retry_cnt = 0;
 	peer->active = 0;
+	peer->local_addr = rxd_addr;
 	dlist_init(&(peer->unacked));
 	dlist_init(&(peer->tx_list));
 	dlist_init(&(peer->rx_list));

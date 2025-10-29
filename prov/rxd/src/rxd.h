@@ -124,11 +124,13 @@ struct rxd_domain {
 
 struct rxd_peer {
 	struct dlist_entry entry;
+	fi_addr_t local_addr;
 	fi_addr_t peer_addr;
 	uint64_t tx_seq_no;
 	uint64_t rx_seq_no;
 	uint64_t last_rx_ack;
 	uint64_t last_tx_ack;
+	uint64_t last_peer_rx_ack;
 	uint16_t rx_window;
 	uint16_t tx_window;
 	int retry_cnt;

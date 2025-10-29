@@ -82,6 +82,7 @@ struct rxd_base_hdr {
 	uint16_t	flags;
 	uint32_t	peer;
 	uint64_t	seq_no;
+	uint64_t	ack_seq;
 };
 
 /*
