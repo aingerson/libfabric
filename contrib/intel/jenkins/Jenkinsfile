@@ -18,7 +18,7 @@ def checkout_ci() {
   sh """
     rm -rf ${env.CUSTOM_WORKSPACE}/ci
     mkdir ${env.CUSTOM_WORKSPACE}/ci
-    git clone --recurse-submodules ${env.CI} ${env.CUSTOM_WORKSPACE}/ci
+    git clone --branch test --recurse-submodules ${env.AINGERSON_CI} ${env.CUSTOM_WORKSPACE}/ci
   """
 }
 
@@ -176,15 +176,6 @@ pipeline {
             }
           }
         }
-        stage ('level-zero') {
-          agent { node { label 'level-zero' } }
-          options { skipDefaultCheckout() }
-          steps {
-            script {
-              initialize()
-            }
-          }
-        }
       }
     }
     stage ('opt_out') {
@@ -216,22 +207,6 @@ pipeline {
             }
           }
         }
-        stage ('level-zero') {
-          agent { node { label 'level-zero' } }
-          options { skipDefaultCheckout() }
-          steps {
-            script {
-              withEnv(["TARGET=${CTARGET}"]) {
-                dir (CI_LOCATION) {
-                  def ret = run_red("${env.LEVEL_ZERO_CONFIG}")
-                  send_logs("${env.CBJ_ADDR}", "${env.CBJ_KEY}",
-                            "${env.LOG_DIR}", "${env.LOG_DIR}")
-                  return ret
-                }
-              }
-            }
-          }
-        }
       }
     }
     stage ('Summary') {
@@ -251,10 +226,6 @@ pipeline {
           CI_summarize(verbose=true)
           CI_summarize()
         }
-      }
-      node ('level-zero') {
-        dir("${env.WORKSPACE}") { deleteDir() }
-        dir("${env.WORKSPACE}@tmp") { deleteDir() }
       }
       dir("${env.WORKSPACE}") { deleteDir() }
       dir("${env.WORKSPACE}@tmp") { deleteDir() }
