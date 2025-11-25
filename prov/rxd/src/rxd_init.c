@@ -121,6 +121,7 @@ static int rxd_getinfo(uint32_t version, const char *node, const char *service,
 			uint64_t flags, const struct fi_info *hints,
 			struct fi_info **info)
 {
+
 	if (rxd_env.rescan > 0) /* Explicitly enabled */
 		flags |= FI_RESCAN;
 	else if (!rxd_env.rescan) /* Explicitly disabled */
