@@ -175,6 +175,12 @@ struct smr_ep {
 	enum ofi_shm_p2p_type	p2p_type;
 	void			*dsa_context;
 	void 			(*smr_progress_ipc_list)(struct smr_ep *ep);
+
+	int			send_proto[smr_src_max];
+	int			recv_proto[smr_src_max];
+
+	int			send_op[ofi_op_max];
+	int			recv_op[ofi_op_max];
 };
 
 #define smr_ep_rx_flags(smr_ep) ((smr_ep)->util_ep.rx_op_flags)

@@ -88,6 +88,8 @@ static ssize_t smr_rma_fast(struct smr_ep *ep, struct smr_region *peer_smr,
 	smr_format_rma_resp(&ce->cmd, peer_id, rma_iov, rma_count, total_len,
 			    (op == ofi_op_write) ? ofi_op_write_async :
 			    ofi_op_read_async, op_flags);
+	ep->send_proto[smr_src_fast_rma]++;
+	ep->send_op[ce->cmd.msg.hdr.op]++;
 	smr_cmd_queue_commit(ce, pos);
 	return FI_SUCCESS;
 }

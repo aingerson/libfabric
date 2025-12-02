@@ -58,6 +58,7 @@ enum {
 	smr_src_mmap,	/* mmap-based fallback protocol */
 	smr_src_sar,	/* segmentation fallback protocol */
 	smr_src_ipc,	/* device IPC handle protocol */
+	smr_src_fast_rma, /* fast RMA protocol */
 	smr_src_max,
 };
 

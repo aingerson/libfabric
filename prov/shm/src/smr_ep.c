@@ -603,6 +603,8 @@ static ssize_t smr_do_inline(struct smr_ep *ep, struct smr_region *peer_smr, int
 	smr_generic_format(cmd, peer_id, op, tag, data, op_flags);
 	smr_format_inline(cmd, desc, iov, iov_count);
 
+	ep->send_proto[smr_src_inline]++;
+	ep->send_op[op]++;
 	return FI_SUCCESS;
 }
 
@@ -621,6 +623,8 @@ static ssize_t smr_do_inject(struct smr_ep *ep, struct smr_region *peer_smr, int
 	smr_generic_format(cmd, peer_id, op, tag, data, op_flags);
 	smr_format_inject(cmd, desc, iov, iov_count, peer_smr, tx_buf);
 
+	ep->send_proto[smr_src_inject]++;
+	ep->send_op[op]++;
 	return FI_SUCCESS;
 }
 
@@ -645,6 +649,8 @@ static ssize_t smr_do_iov(struct smr_ep *ep, struct smr_region *peer_smr, int64_
 			     iov_count, op_flags, id, resp);
 	ofi_cirque_commit(smr_resp_queue(ep->region));
 
+	ep->send_proto[smr_src_iov]++;
+	ep->send_op[op]++;
 	return FI_SUCCESS;
 }
 
@@ -676,6 +682,8 @@ static ssize_t smr_do_sar(struct smr_ep *ep, struct smr_region *peer_smr, int64_
 			     iov_count, op_flags, id, resp);
 	ofi_cirque_commit(smr_resp_queue(ep->region));
 
+	ep->send_proto[smr_src_sar]++;
+	ep->send_op[op]++;
 	return FI_SUCCESS;
 }
 
@@ -713,6 +721,8 @@ static ssize_t smr_do_ipc(struct smr_ep *ep, struct smr_region *peer_smr, int64_
 			     iov_count, op_flags, id, resp);
 	ofi_cirque_commit(smr_resp_queue(ep->region));
 
+	ep->send_proto[smr_src_ipc]++;
+	ep->send_op[op]++;
 	return FI_SUCCESS;
 }
 
@@ -743,6 +753,8 @@ static ssize_t smr_do_mmap(struct smr_ep *ep, struct smr_region *peer_smr, int64
 			     iov_count, op_flags, id, resp);
 	ofi_cirque_commit(smr_resp_queue(ep->region));
 
+	ep->send_proto[smr_src_mmap]++;
+	ep->send_op[op]++;
 	return FI_SUCCESS;
 }
 
@@ -786,6 +798,50 @@ static int smr_ep_close(struct fid *fid)
 		if (ep->util_ep.ep_fid.msg != &smr_no_recv_msg_ops)
 			(void) util_srx_close(&ep->srx->ep_fid.fid);
 	}
+
+	printf("%d: tx inline %d\ttx inject %d\ttx iov %d\ttx sar %d\n",
+		getpid(),
+		ep->send_proto[smr_src_inline],
+		ep->send_proto[smr_src_inject],
+		ep->send_proto[smr_src_iov],
+		ep->send_proto[smr_src_sar]);
+	
+	printf("%d: rx inline %d\trx inject %d\trx iov %d\trx sar %d\n",
+		getpid(),
+		ep->recv_proto[smr_src_inline],
+		ep->recv_proto[smr_src_inject],
+		ep->recv_proto[smr_src_iov],
+		ep->recv_proto[smr_src_sar]);
+	
+	printf("%d: tx msg %d\ttx tagged %d\ttx read req %d\ttx read rsp %d"
+		"\ttx write %d\ttx write async %d\ttx atomic %d\ttx atomic fetch %d"
+		"\ttx atomic compare %d\ttx read async %d\n",
+		getpid(),
+		ep->send_op[ofi_op_msg],
+		ep->send_op[ofi_op_tagged],
+		ep->send_op[ofi_op_read_req],
+		ep->send_op[ofi_op_read_rsp],
+		ep->send_op[ofi_op_write],
+		ep->send_op[ofi_op_write_async],
+		ep->send_op[ofi_op_atomic],
+		ep->send_op[ofi_op_atomic_fetch],
+		ep->send_op[ofi_op_atomic_compare],
+		ep->send_op[ofi_op_read_async]);
+	
+	printf("%d: rx msg %d\trx tagged %d\trx read req %d\trx read rsp %d"
+		"\trx write %d\trx write async %d\trx atomic %d\trx atomic fetch %d"
+		"\trx atomic compare %d\trx read async %d\n",
+		getpid(),
+		ep->recv_op[ofi_op_msg],
+		ep->recv_op[ofi_op_tagged],
+		ep->recv_op[ofi_op_read_req],
+		ep->recv_op[ofi_op_read_rsp],
+		ep->recv_op[ofi_op_write],
+		ep->recv_op[ofi_op_write_async],
+		ep->recv_op[ofi_op_atomic],
+		ep->recv_op[ofi_op_atomic_fetch],
+		ep->recv_op[ofi_op_atomic_compare],
+		ep->recv_op[ofi_op_read_async]);
 
 	ofi_endpoint_close(&ep->util_ep);
 

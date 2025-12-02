@@ -66,6 +66,8 @@ static void smr_do_atomic_inline(struct smr_ep *ep, struct smr_region *peer_smr,
 	smr_generic_format(cmd, peer_id, op, 0, 0, op_flags);
 	smr_generic_atomic_format(cmd, datatype, atomic_op);
 	smr_format_inline_atomic(cmd, desc, iov, iov_count);
+	ep->send_proto[smr_src_inline]++;
+	ep->send_op[op]++;
 }
 
 static void smr_format_inject_atomic(struct smr_cmd *cmd, struct ofi_mr **desc,
@@ -149,6 +151,8 @@ static ssize_t smr_do_atomic_inject(struct smr_ep *ep, struct smr_region *peer_s
 
 	cmd->msg.hdr.op_flags |= smr_flags;
 
+	ep->send_proto[smr_src_inject]++;
+	ep->send_op[op]++;
 	return FI_SUCCESS;
 }
 
