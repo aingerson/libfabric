@@ -67,6 +67,8 @@ static void smr_do_atomic_inline(
 	smr_generic_format(cmd, tx_id, rx_id, op, 0, 0, op_flags);
 	smr_generic_atomic_format(cmd, datatype, atomic_op);
 	smr_format_inline_atomic(cmd, desc, iov, iov_count);
+	ep->send_proto[smr_proto_inline]++;
+	ep->send_op[op]++;
 }
 
 static void smr_format_inject_atomic(
@@ -143,6 +145,8 @@ static ssize_t smr_do_atomic_inject(
 	} else {
 		cmd->hdr.tx_ctx = 0;
 	}
+	ep->send_proto[smr_proto_inject]++;
+	ep->send_op[op]++;
 
 	return FI_SUCCESS;
 }

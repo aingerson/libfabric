@@ -447,6 +447,8 @@ static ssize_t smr_do_inline(struct smr_ep *ep, struct smr_region *peer_smr,
 	smr_generic_format(cmd, tx_id, rx_id, op, tag, data, op_flags);
 	smr_format_inline(cmd, desc, iov, iov_count);
 
+	ep->send_proto[smr_proto_inline]++;
+	ep->send_op[op]++;
 	return FI_SUCCESS;
 }
 
@@ -461,6 +463,8 @@ static ssize_t smr_do_inject(struct smr_ep *ep, struct smr_region *peer_smr,
 
 	pend = ofi_buf_alloc(ep->pend_pool);
 	assert(pend);
+	if (!pend)
+		return -FI_EAGAIN;
 
 	cmd->hdr.tx_ctx = (uintptr_t) pend;
 	smr_format_tx_pend(pend, cmd, context, desc, iov, iov_count, op_flags);
@@ -468,6 +472,8 @@ static ssize_t smr_do_inject(struct smr_ep *ep, struct smr_region *peer_smr,
 	smr_generic_format(cmd, tx_id, rx_id, op, tag, data, op_flags);
 	smr_format_inject(ep, cmd, pend);
 
+	ep->send_proto[smr_proto_inject]++;
+	ep->send_op[op]++;
 	return FI_SUCCESS;
 }
 
@@ -489,6 +495,8 @@ static ssize_t smr_do_iov(struct smr_ep *ep, struct smr_region *peer_smr,
 	smr_generic_format(cmd, tx_id, rx_id, op, tag, data, op_flags);
 	smr_format_iov(cmd, pend);
 
+	ep->send_proto[smr_proto_iov]++;
+	ep->send_op[op]++;
 	return FI_SUCCESS;
 }
 
@@ -522,6 +530,8 @@ static ssize_t smr_do_sar(struct smr_ep *ep, struct smr_region *peer_smr,
 	if (ret)
 		ofi_buf_free(pend);
 
+	ep->send_proto[smr_proto_sar]++;
+	ep->send_op[op]++;
 	return ret;
 }
 
@@ -556,6 +566,8 @@ static ssize_t smr_do_ipc(struct smr_ep *ep, struct smr_region *peer_smr,
 
 	smr_format_tx_pend(pend, cmd, context, desc, iov, iov_count, op_flags);
 
+	ep->send_proto[smr_proto_ipc]++;
+	ep->send_op[op]++;
 	return FI_SUCCESS;
 }
 
@@ -565,6 +577,48 @@ smr_send_func smr_send_ops[smr_proto_max] = {
 	[smr_proto_iov] = &smr_do_iov,
 	[smr_proto_sar] = &smr_do_sar,
 	[smr_proto_ipc] = &smr_do_ipc,
+};
+
+char *tx_protos[smr_proto_max] = {
+	[smr_proto_inline] = "tx inline",
+	[smr_proto_inject] = "tx inject",
+	[smr_proto_iov] = "tx iov",
+	[smr_proto_sar] = "tx sar",
+	[smr_proto_ipc] = "tx ipc",
+};
+
+char *tx_ops[ofi_op_max] = {
+	[ofi_op_msg] = "tx msg",
+	[ofi_op_tagged] = "tx tagged",
+	[ofi_op_read_req] = "tx read req",
+	[ofi_op_read_rsp] = "tx read rsp",
+	[ofi_op_write] = "tx write",
+	[ofi_op_write_async] = "tx write async",
+	[ofi_op_atomic] = "tx atomic",
+	[ofi_op_atomic_fetch] = "tx atomic fetch",
+	[ofi_op_atomic_compare] = "tx atomic compare",
+	[ofi_op_read_async] = "tx read async",
+};
+
+char *rx_protos[smr_proto_max] = {
+	[smr_proto_inline] = "rx inline",
+	[smr_proto_inject] = "rx inject",
+	[smr_proto_iov] = "rx iov",
+	[smr_proto_sar] = "rx sar",
+	[smr_proto_ipc] = "rx ipc",
+};
+
+char *rx_ops[ofi_op_max] = {
+	[ofi_op_msg] = "rx msg",
+	[ofi_op_tagged] = "rx tagged",
+	[ofi_op_read_req] = "rx read req",
+	[ofi_op_read_rsp] = "rx read rsp",
+	[ofi_op_write] = "rx write",
+	[ofi_op_write_async] = "rx write async",
+	[ofi_op_atomic] = "rx atomic",
+	[ofi_op_atomic_fetch] = "rx atomic fetch",
+	[ofi_op_atomic_compare] = "rx atomic compare",
+	[ofi_op_read_async] = "rx read async",
 };
 
 static int smr_ep_close(struct fid *fid)
@@ -599,6 +653,93 @@ static int smr_ep_close(struct fid *fid)
 			(void) util_srx_close(&ep->srx->ep_fid.fid);
 	}
 
+	if (ep->send_proto[smr_proto_inline] || ep->send_proto[smr_proto_inject] ||
+		ep->send_proto[smr_proto_iov] || ep->send_proto[smr_proto_sar]) {
+		printf("%d: %s %d %s %d %s %d %s %d\n",
+			getpid(),
+			ep->send_proto[smr_proto_inline] ? tx_protos[smr_proto_inline] : "",
+			ep->send_proto[smr_proto_inline],
+			ep->send_proto[smr_proto_inject] ? tx_protos[smr_proto_inject] : "",
+			ep->send_proto[smr_proto_inject],
+			ep->send_proto[smr_proto_iov] ? tx_protos[smr_proto_iov] : "",
+			ep->send_proto[smr_proto_iov],
+			ep->send_proto[smr_proto_sar] ? tx_protos[smr_proto_sar] : "",
+			ep->send_proto[smr_proto_sar]);
+	}
+
+	if (ep->recv_proto[smr_proto_inline] || ep->recv_proto[smr_proto_inject] ||
+		ep->recv_proto[smr_proto_iov] || ep->recv_proto[smr_proto_sar]) {
+		printf("%d: %s %d %s %d %s %d %s %d\n",
+			getpid(),
+			ep->recv_proto[smr_proto_inline] ? rx_protos[smr_proto_inline] : "",
+			ep->recv_proto[smr_proto_inline],
+			ep->recv_proto[smr_proto_inject] ? rx_protos[smr_proto_inject] : "",
+			ep->recv_proto[smr_proto_inject],
+			ep->recv_proto[smr_proto_iov] ? rx_protos[smr_proto_iov] : "",
+			ep->recv_proto[smr_proto_iov],
+			ep->recv_proto[smr_proto_sar] ? rx_protos[smr_proto_sar] : "",
+			ep->recv_proto[smr_proto_sar]);
+	}
+
+	if (ep->send_op[ofi_op_msg] || ep->send_op[ofi_op_tagged] ||
+		ep->send_op[ofi_op_read_req] || ep->send_op[ofi_op_read_rsp] ||
+		ep->send_op[ofi_op_write] || ep->send_op[ofi_op_write_async] ||
+		ep->send_op[ofi_op_atomic] || ep->send_op[ofi_op_atomic_fetch] ||
+		ep->send_op[ofi_op_atomic_compare] || ep->send_op[ofi_op_read_async]) {
+		printf("%d: %s %d %s %d %s %d %s %d %s %d %s %d %s %d %s %d "
+			"%s %d %s %d\n",
+			getpid(),
+			ep->send_op[ofi_op_msg] ? tx_ops[ofi_op_msg] : "",
+			ep->send_op[ofi_op_msg],
+			ep->send_op[ofi_op_tagged] ? tx_ops[ofi_op_tagged] : "",
+			ep->send_op[ofi_op_tagged],
+			ep->send_op[ofi_op_read_req] ? tx_ops[ofi_op_read_req] : "",
+			ep->send_op[ofi_op_read_req],
+			ep->send_op[ofi_op_read_rsp] ? tx_ops[ofi_op_read_rsp] : "",
+			ep->send_op[ofi_op_read_rsp],
+			ep->send_op[ofi_op_write] ? tx_ops[ofi_op_write] : "",
+			ep->send_op[ofi_op_write],
+			ep->send_op[ofi_op_write_async] ? tx_ops[ofi_op_write_async] : "",
+			ep->send_op[ofi_op_write_async],
+			ep->send_op[ofi_op_atomic] ? tx_ops[ofi_op_atomic] : "",
+			ep->send_op[ofi_op_atomic],
+			ep->send_op[ofi_op_atomic_fetch] ? tx_ops[ofi_op_atomic_fetch] : "",
+			ep->send_op[ofi_op_atomic_fetch],
+			ep->send_op[ofi_op_atomic_compare] ? tx_ops[ofi_op_atomic_compare] : "",
+			ep->send_op[ofi_op_atomic_compare],
+			ep->send_op[ofi_op_read_async] ? tx_ops[ofi_op_read_async] : "",
+			ep->send_op[ofi_op_read_async]);
+	}
+
+	if (ep->recv_op[ofi_op_msg] || ep->recv_op[ofi_op_tagged] ||
+		ep->recv_op[ofi_op_read_req] || ep->recv_op[ofi_op_read_rsp] ||
+		ep->recv_op[ofi_op_write] || ep->recv_op[ofi_op_write_async] ||
+		ep->recv_op[ofi_op_atomic] || ep->recv_op[ofi_op_atomic_fetch] ||
+		ep->recv_op[ofi_op_atomic_compare] || ep->recv_op[ofi_op_read_async]) {
+		printf("%d: %s %d %s %d %s %d %s %d %s %d %s %d %s %d %s %d "
+			"%s %d %s %d\n",
+			getpid(),
+			ep->recv_op[ofi_op_msg] ? rx_ops[ofi_op_msg] : "",
+			ep->recv_op[ofi_op_msg],
+			ep->recv_op[ofi_op_tagged] ? rx_ops[ofi_op_tagged] : "",
+			ep->recv_op[ofi_op_tagged],
+			ep->recv_op[ofi_op_read_req] ? rx_ops[ofi_op_read_req] : "",
+			ep->recv_op[ofi_op_read_req],
+			ep->recv_op[ofi_op_read_rsp] ? rx_ops[ofi_op_read_rsp] : "",
+			ep->recv_op[ofi_op_read_rsp],
+			ep->recv_op[ofi_op_write] ? rx_ops[ofi_op_write] : "",
+			ep->recv_op[ofi_op_write],
+			ep->recv_op[ofi_op_write_async] ? rx_ops[ofi_op_write_async] : "",
+			ep->recv_op[ofi_op_write_async],
+			ep->recv_op[ofi_op_atomic] ? rx_ops[ofi_op_atomic] : "",
+			ep->recv_op[ofi_op_atomic],
+			ep->recv_op[ofi_op_atomic_fetch] ? rx_ops[ofi_op_atomic_fetch] : "",
+			ep->recv_op[ofi_op_atomic_fetch],
+			ep->recv_op[ofi_op_atomic_compare] ? rx_ops[ofi_op_atomic_compare] : "",
+			ep->recv_op[ofi_op_atomic_compare],
+			ep->recv_op[ofi_op_read_async] ? rx_ops[ofi_op_read_async] : "",
+			ep->recv_op[ofi_op_read_async]);
+	}
 	ofi_endpoint_close(&ep->util_ep);
 
 	if (ep->region)

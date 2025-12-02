@@ -60,6 +60,14 @@ struct smr_ep {
 	enum ofi_shm_p2p_type	p2p_type;
 	void			*dsa_context;
 	void 			(*smr_progress_async)(struct smr_ep *ep);
+
+	int			send_proto[smr_proto_max];
+	int			recv_proto[smr_proto_max];
+
+	int			send_op[ofi_op_max];
+	int			recv_op[ofi_op_max];
+
+	int			atomic_eagain;
 };
 
 

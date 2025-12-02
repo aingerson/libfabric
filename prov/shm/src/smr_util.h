@@ -69,6 +69,7 @@ enum {
 	smr_proto_iov,		/* iovec copy via CMA or xpmem */
 	smr_proto_sar,		/* segmentation fallback */
 	smr_proto_ipc,		/* device IPC handle */
+	smr_proto_fast_rma,	/* fast RMA protocol */
 	smr_proto_max,
 };
 

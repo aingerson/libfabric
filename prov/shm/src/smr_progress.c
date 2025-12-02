@@ -1180,19 +1180,27 @@ static void smr_progress_cmd(struct smr_ep *ep)
 		switch (cmd->hdr.op) {
 		case ofi_op_msg:
 		case ofi_op_tagged:
+			ep->recv_proto[ce->cmd.hdr.proto]++;
+			ep->recv_op[ce->cmd.hdr.op]++;
 			ret = smr_progress_cmd_msg(ep, cmd);
 			break;
 		case ofi_op_write:
 		case ofi_op_read_req:
+			ep->recv_proto[ce->cmd.hdr.proto]++;
+			ep->recv_op[ce->cmd.hdr.op]++;
 			ret = smr_progress_cmd_rma(ep, cmd);
 			break;
 		case ofi_op_write_async:
 		case ofi_op_read_async:
+			ep->recv_proto[ce->cmd.hdr.proto]++;
+			ep->recv_op[ce->cmd.hdr.op]++;
 			ofi_ep_peer_rx_cntr_inc(&ep->util_ep, cmd->hdr.op);
 			break;
 		case ofi_op_atomic:
 		case ofi_op_atomic_fetch:
 		case ofi_op_atomic_compare:
+			ep->recv_proto[ce->cmd.hdr.proto]++;
+			ep->recv_op[ce->cmd.hdr.op]++;
 			ret = smr_progress_cmd_atomic(ep, cmd);
 			break;
 		case SMR_OP_MAX + ofi_ctrl_connreq:
