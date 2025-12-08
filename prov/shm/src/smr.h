@@ -37,6 +37,56 @@
 #include "ofi_shm_p2p.h"
 #include "ofi_util.h"
 
+struct smr_ep {
+	struct util_ep		util_ep;
+	size_t			tx_size;
+	size_t			rx_size;
+	const char		*name;
+	uint64_t		msg_id;
+	struct smr_region	*volatile region;
+	struct smr_map		*map;
+
+	struct fid_peer_srx	*srx;
+	struct ofi_bufpool	*cmd_ctx_pool;
+	struct ofi_bufpool	*unexp_buf_pool;
+	struct ofi_bufpool	*pend_buf_pool;
+
+	struct smr_tx_fs	*tx_fs;
+	struct dlist_entry	sar_list;
+	struct dlist_entry	ipc_cpy_pend_list;
+	struct dlist_entry	unexp_cmd_list;
+	size_t			min_multi_recv_size;
+
+	int			ep_idx;
+	enum ofi_shm_p2p_type	p2p_type;
+	void			*dsa_context;
+	void 			(*smr_progress_ipc_list)(struct smr_ep *ep);
+};
+
+struct smr_map {
+	int64_t			cur_id;
+	int 			num_peers;
+	uint16_t		flags;
+	struct ofi_rbmap	rbmap;
+	struct smr_peer		peers[SMR_MAX_PEERS];
+};
+
+struct smr_av {
+	struct util_av		util_av;
+	struct smr_map		smr_map;
+	size_t			used;
+};
+
+static inline struct smr_region *smr_peer_region(struct smr_ep *ep, int i)
+{
+	return ep->map->peers[i].region;
+}
+
+void smr_map_add(struct smr_map *map, const char *name, int64_t *id);
+int smr_map_to_region(struct smr_map *map, int64_t id);
+void smr_unmap_region(struct smr_map *map, int64_t id, bool found);
+void smr_map_to_endpoint(struct smr_ep *ep, int64_t id);
+
 struct smr_env {
 	size_t sar_threshold;
 	int disable_cma;
@@ -53,12 +103,6 @@ extern int smr_global_ep_idx; //protected by the ep_list_lock
 
 int smr_fabric(struct fi_fabric_attr *attr, struct fid_fabric **fabric,
 		void *context);
-
-struct smr_av {
-	struct util_av		util_av;
-	struct smr_map		smr_map;
-	size_t			used;
-};
 
 static inline int64_t smr_addr_lookup(struct util_av *av, fi_addr_t fiaddr)
 {
@@ -153,30 +197,6 @@ struct smr_unexp_buf {
 	char buf[SMR_SAR_SIZE];
 };
 
-struct smr_ep {
-	struct util_ep		util_ep;
-	size_t			tx_size;
-	size_t			rx_size;
-	const char		*name;
-	uint64_t		msg_id;
-	struct smr_region	*volatile region;
-	struct fid_peer_srx	*srx;
-	struct ofi_bufpool	*cmd_ctx_pool;
-	struct ofi_bufpool	*unexp_buf_pool;
-	struct ofi_bufpool	*pend_buf_pool;
-
-	struct smr_tx_fs	*tx_fs;
-	struct dlist_entry	sar_list;
-	struct dlist_entry	ipc_cpy_pend_list;
-	struct dlist_entry	unexp_cmd_list;
-	size_t			min_multi_recv_size;
-
-	int			ep_idx;
-	enum ofi_shm_p2p_type	p2p_type;
-	void			*dsa_context;
-	void 			(*smr_progress_ipc_list)(struct smr_ep *ep);
-};
-
 #define smr_ep_rx_flags(smr_ep) ((smr_ep)->util_ep.rx_op_flags)
 #define smr_ep_tx_flags(smr_ep) ((smr_ep)->util_ep.tx_op_flags)
 
@@ -220,7 +240,7 @@ typedef ssize_t (*smr_proto_func)(struct smr_ep *ep, struct smr_region *peer_smr
 		uint64_t data, uint64_t op_flags, struct ofi_mr **desc,
 		const struct iovec *iov, size_t iov_count, size_t total_len,
 		void *context, struct smr_cmd *cmd);
-extern smr_proto_func smr_proto_ops[smr_src_max];
+extern smr_proto_func smr_proto_ops[smr_proto_max];
 
 int smr_write_err_comp(struct util_cq *cq, void *context,
 		       uint64_t flags, uint64_t tag, int err);
@@ -239,24 +259,21 @@ static inline uint64_t smr_rx_cq_flags(uint64_t rx_flags, uint16_t op_flags)
 
 void smr_ep_progress(struct util_ep *util_ep);
 
+/* Returns whether any VMA interface is available */
 static inline bool smr_vma_enabled(struct smr_ep *ep,
 				   struct smr_region *peer_smr)
 {
-	if (ep->region == peer_smr)
-		return (ep->region->cma_cap_self == SMR_VMA_CAP_ON ||
-			ep->region->xpmem_cap_self == SMR_VMA_CAP_ON);
-	else
-		return (ep->region->cma_cap_peer == SMR_VMA_CAP_ON ||
-			peer_smr->xpmem_cap_self == SMR_VMA_CAP_ON);
+	return ep->region == peer_smr ? ep->region->self_vma_caps :
+					ep->region->peer_vma_caps;
 }
 
-static inline void smr_set_ipc_valid(struct smr_region *region, uint64_t id)
+static inline void smr_set_ipc_valid(struct smr_ep *ep, uint64_t id)
 {
 	if (ofi_hmem_is_initialized(FI_HMEM_ZE) &&
-	    region->map->peers[id].pid_fd == -1)
-		smr_peer_data(region)[id].ipc_valid = 0;
+	    ep->map->peers[id].pid_fd == -1)
+		smr_peer_data(ep->region)[id].ipc_valid = 0;
         else
-        	smr_peer_data(region)[id].ipc_valid = 1;
+		smr_peer_data(ep->region)[id].ipc_valid = 1;
 }
 
 static inline bool smr_ipc_valid(struct smr_ep *ep, struct smr_region *peer_smr,
@@ -264,13 +281,6 @@ static inline bool smr_ipc_valid(struct smr_ep *ep, struct smr_region *peer_smr,
 {
 	return (smr_peer_data(ep->region)[id].ipc_valid &&
 		smr_peer_data(peer_smr)[peer_id].ipc_valid);
-}
-
-static inline bool smr_ze_ipc_enabled(struct smr_region *smr,
-				      struct smr_region *peer_smr)
-{
-	return (smr->flags & SMR_FLAG_IPC_SOCK) &&
-	       (peer_smr->flags & SMR_FLAG_IPC_SOCK);
 }
 
 static inline struct smr_inject_buf *

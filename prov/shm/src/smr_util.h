@@ -40,30 +40,25 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+#define SMR_VERSION	9
 
-#define SMR_VERSION	8
+#define SMR_FLAG_HMEM_ENABLED	(1 << 0)
+#define SMR_FLAG_CMA_INIT	(1 << 1)
+#define SMR_FLAG_XPMEM_ENABLED	(1 << 2)
 
-#define SMR_FLAG_ATOMIC	(1 << 0)
-#define SMR_FLAG_DEBUG	(1 << 1)
-#define SMR_FLAG_IPC_SOCK (1 << 2)
-#define SMR_FLAG_HMEM_ENABLED (1 << 3)
+/* SMR_CMD_SIZE refers to the total bytes dedicated for use in shm headers and
+ * data. The entire atomic queue entry will be cache aligned (512) but this also
+ * includes the cmd aq header (16) + cmd entry ptr (8)
+ * 512 (total entry size) - 16 (aq header) - 8 (entry ptr) = 488
+ * This maximizes the inline payload. Increasing this value will increase the
+ * atomic queue entry to 576 bytes.
+ */
+#define SMR_CMD_SIZE		488
 
-#define SMR_CMD_SIZE		256	/* align with 64-byte cache line */
-
-/* SMR op_src: Specifies data source location */
-enum {
-	smr_src_inline,	/* command data */
-	smr_src_inject,	/* inject buffers */
-	smr_src_iov,	/* reference iovec via CMA */
-	smr_src_mmap,	/* mmap-based fallback protocol */
-	smr_src_sar,	/* segmentation fallback protocol */
-	smr_src_ipc,	/* device IPC handle protocol */
-	smr_src_max,
-};
-
-//reserves 0-255 for defined ops and room for new ops
-//256 and beyond reserved for ctrl ops
-#define SMR_OP_MAX (1 << 8)
+/* reserves 0-255 for defined ops and room for new ops
+ * 256 and beyond reserved for ctrl ops
+ */
+#define SMR_OP_MAX (1 << 6)
 
 #define SMR_REMOTE_CQ_DATA	(1 << 0)
 #define SMR_RMA_REQ		(1 << 1)
@@ -71,33 +66,39 @@ enum {
 #define SMR_RX_COMPLETION	(1 << 3)
 #define SMR_MULTI_RECV		(1 << 4)
 
-/* CMA/XPMEM capability. Generic acronym used:
- * VMA: Virtual Memory Address */
 enum {
-	SMR_VMA_CAP_NA,
-	SMR_VMA_CAP_ON,
-	SMR_VMA_CAP_OFF,
+	smr_proto_inline,	/* inline payload */
+	smr_proto_inject,	/* inject buffers */
+	smr_proto_iov,		/* iovec copy via CMA or xpmem */
+	smr_proto_sar,		/* segmentation fallback */
+	smr_proto_ipc,		/* device IPC handle */
+	smr_proto_max,
 };
 
 /*
- * Unique smr_op_hdr for smr message protocol:
- * 	addr - local shm_id of peer sending msg (for shm lookup)
- * 	op - type of op (ex. ofi_op_msg, defined in ofi_proto.h)
- * 	op_src - msg src (ex. smr_src_inline, defined above)
- * 	op_flags - operation flags (ex. SMR_REMOTE_CQ_DATA, defined above)
- * 	src_data - src of additional op data (inject offset / resp offset)
- * 	data - remote CQ data
+ * Unique smr_cmd_hdr for smr message protocol:
+ *	entry		for internal use managing commands (must be kept first)
+ *	tx_ctx		source side context (unused by target side)
+ *	rx_ctx		target side context (unused by source side)
+ * 	tx_id		local shm_id of peer sending msg (unused by target)
+ *	rx_id		remote shm_id of peer sending msg (unused by source)
+ * 	op		type of op (ex. ofi_op_msg, defined in ofi_proto.h)
+ * 	proto		smr protocol (ex. smr_proto_inline, defined above)
+ * 	op_flags	operation flags (ex. SMR_REMOTE_CQ_DATA, defined above)
+ * 	size		size of data transfer
+ * 	status		returned status of operation
+ * 	cq_data		remote CQ data
+ * 	tag		tag for FI_TAGGED API only
+ * 	datatype	atomic datatype for FI_ATOMIC API only
+ * 	atomic_op	atomic operation for FI_ATOMIC API only
  */
-struct smr_msg_hdr {
-	uint64_t		msg_id;
-	int64_t			id;
-	uint32_t		op;
-	uint16_t		op_src;
-	uint16_t		op_flags;
-
+struct smr_cmd_hdr {
+	uint64_t		entry;
+	uint64_t		tx_ctx;
+	uint64_t		rx_ctx;
 	uint64_t		size;
-	uint64_t		src_data;
-	uint64_t		data;
+	int64_t			status;
+	uint64_t		cq_data;
 	union {
 		uint64_t	tag;
 		struct {
@@ -105,47 +106,63 @@ struct smr_msg_hdr {
 			uint8_t	atomic_op;
 		};
 	};
-} __attribute__ ((aligned(16)));
+	int16_t			rx_id;
+	int16_t			tx_id;
+	uint8_t			op;
+	uint8_t			proto;
+	uint8_t			op_flags;
+	uint8_t			resv[1];
+};
+
+#ifdef static_assert
+static_assert(sizeof(struct smr_cmd_hdr) == 64,
+	      "Command header must be 64 bytes to maximize cache performance");
+#endif
 
 #define SMR_BUF_BATCH_MAX	64
-#define SMR_MSG_DATA_LEN	(SMR_CMD_SIZE - sizeof(struct smr_msg_hdr))
+#define SMR_MSG_DATA_LEN	(SMR_CMD_SIZE - \
+				 (sizeof(struct smr_cmd_hdr) + \
+				  sizeof(struct smr_cmd_rma)))
+#define SMR_IOV_LIMIT		4
 
-union smr_cmd_data {
-	uint8_t			msg[SMR_MSG_DATA_LEN];
-	struct {
-		size_t		iov_count;
-		struct iovec	iov[(SMR_MSG_DATA_LEN - sizeof(size_t)) /
-				    sizeof(struct iovec)];
-	};
-	struct {
-		uint32_t	buf_batch_size;
-		int16_t		sar[SMR_BUF_BATCH_MAX];
-	};
-	struct ipc_info		ipc_info;
-};
-
-struct smr_cmd_msg {
-	struct smr_msg_hdr	hdr;
-	union smr_cmd_data	data;
-};
-
-#define SMR_RMA_DATA_LEN	(128 - sizeof(uint64_t))
 struct smr_cmd_rma {
-	uint64_t		rma_count;
+	uint64_t			rma_count;
 	union {
-		struct fi_rma_iov	rma_iov[SMR_RMA_DATA_LEN /
-						sizeof(struct fi_rma_iov)];
-		struct fi_rma_ioc	rma_ioc[SMR_RMA_DATA_LEN /
-						sizeof(struct fi_rma_ioc)];
+		struct fi_rma_iov	rma_iov[SMR_IOV_LIMIT];
+		struct fi_rma_ioc	rma_ioc[SMR_IOV_LIMIT];
 	};
 };
+
+struct smr_cmd_data {
+	union {
+		uint8_t			msg[SMR_MSG_DATA_LEN];
+		struct {
+			size_t		iov_count;
+			struct iovec	iov[SMR_IOV_LIMIT];
+		};
+		struct {
+			uint32_t	buf_batch_size;
+			int16_t		sar[SMR_BUF_BATCH_MAX];
+		};
+		struct ipc_info		ipc_info;
+	};
+};
+
+#ifdef static_assert
+static_assert(sizeof(struct smr_cmd_data) == SMR_MSG_DATA_LEN,
+	      "Unexpected element in smr_cmd_data union");
+#endif
 
 struct smr_cmd {
-	union {
-		struct smr_cmd_msg	msg;
-		struct smr_cmd_rma	rma;
-	};
+	struct smr_cmd_hdr	hdr;
+	struct smr_cmd_data	data;
+	struct smr_cmd_rma	rma;
 };
+
+#ifdef static_assert
+static_assert(sizeof(struct smr_cmd) == SMR_CMD_SIZE,
+	      "smr_cmd is not the expected size; please check your cmd fields");
+#endif
 
 #define SMR_INJECT_SIZE		4096
 #define SMR_COMP_INJECT_SIZE	(SMR_INJECT_SIZE / 2)
@@ -164,12 +181,13 @@ struct smr_addr {
 };
 
 struct smr_peer_data {
-	struct smr_addr		addr;
+	int64_t			id;
 	uint32_t		sar_status;
 	uint16_t		name_sent;
 	uint16_t		ipc_valid;
+	uintptr_t		local_region;
 	struct ofi_xpmem_client xpmem;
-};
+} __attribute__ ((aligned(64)));
 
 extern struct dlist_entry ep_name_list;
 extern pthread_mutex_t ep_list_lock;
@@ -190,7 +208,8 @@ static inline const char *smr_no_prefix(const char *addr)
 }
 
 struct smr_peer {
-	struct smr_addr		peer;
+	char			name[SMR_NAME_MAX];
+	bool			id_assigned;
 	fi_addr_t		fiaddr;
 	struct smr_region	*region;
 	int			pid_fd;
@@ -198,35 +217,25 @@ struct smr_peer {
 
 #define SMR_MAX_PEERS	256
 
-struct smr_map {
-	ofi_spin_t		lock;
-	int64_t			cur_id;
-	int 			num_peers;
-	uint16_t		flags;
-	struct ofi_rbmap	rbmap;
-	struct smr_peer		peers[SMR_MAX_PEERS];
-};
-
 struct smr_region {
-	uint8_t		version;
-	uint8_t		resv;
-	uint16_t	flags;
-	int		pid;
-	uint8_t		cma_cap_peer;
-	uint8_t		cma_cap_self;
-	uint8_t		xpmem_cap_self;
-	uint8_t		resv2;
+	uint8_t			version;
+	uint8_t			resv;
+	uint16_t		flags;
+	uint8_t			self_vma_caps;
+	uint8_t			peer_vma_caps;
 
-	uint32_t	max_sar_buf_per_peer;
+	uint16_t		max_sar_buf_per_peer;
 	struct ofi_xpmem_pinfo	xpmem_self;
 	struct ofi_xpmem_pinfo	xpmem_peer;
-	void		*base_addr;
+
+	int			pid;
+	int			resv2;
+
+	uintptr_t		base_addr;
 	pthread_spinlock_t	lock; /* lock for shm access
 				 if both ep->tx_lock and this lock need to
 				 held, then ep->tx_lock needs to be held
 				 first */
-
-	struct smr_map	*map;
 
 	size_t		total_size;
 
@@ -238,6 +247,18 @@ struct smr_region {
 	size_t		peer_data_offset;
 	size_t		name_offset;
 };
+
+static inline void smr_set_vma_cap(uint8_t *vma_cap, uint8_t type, bool avail)
+{
+	(*vma_cap) &= ~(1 << type);
+	(*vma_cap) |= (uint8_t) avail << type;
+}
+
+static inline uint8_t smr_get_vma_cap(uint8_t vma_cap, uint8_t type)
+{
+	return vma_cap & (1 << type);
+}
+
 
 struct smr_resp {
 	uint64_t	msg_id;
@@ -283,10 +304,6 @@ struct smr_cmd_entry {
 OFI_DECLARE_CIRQUE(struct smr_resp, smr_resp_queue);
 OFI_DECLARE_ATOMIC_Q(struct smr_cmd_entry, smr_cmd_queue);
 
-static inline struct smr_region *smr_peer_region(struct smr_region *smr, int i)
-{
-	return smr->map->peers[i].region;
-}
 static inline struct smr_cmd_queue *smr_cmd_queue(struct smr_region *smr)
 {
 	return (struct smr_cmd_queue *) ((char *) smr + smr->cmd_queue_offset);
@@ -312,11 +329,6 @@ static inline const char *smr_name(struct smr_region *smr)
 	return (const char *) smr + smr->name_offset;
 }
 
-static inline void smr_set_map(struct smr_region *smr, struct smr_map *map)
-{
-	smr->map = map;
-}
-
 struct smr_attr {
 	const char	*name;
 	size_t		rx_count;
@@ -330,20 +342,7 @@ size_t smr_calculate_size_offsets(size_t tx_count, size_t rx_count,
 				  size_t *peer_offset, size_t *name_offset);
 void	smr_cma_check(struct smr_region *region, struct smr_region *peer_region);
 void	smr_cleanup(void);
-int	smr_map_to_region(const struct fi_provider *prov, struct smr_map *map,
-			  int64_t id);
-void	smr_map_to_endpoint(struct smr_region *region, int64_t id);
-void	smr_unmap_region(const struct fi_provider *prov, struct smr_map *map,
-			  int64_t id, bool found);
-void	smr_unmap_from_endpoint(struct smr_region *region, int64_t id);
-void	smr_exchange_all_peers(struct smr_region *region);
-int	smr_map_add(const struct fi_provider *prov, struct smr_map *map,
-		    const char *name, int64_t *id);
-void	smr_map_del(struct smr_map *map, int64_t id);
-
-struct smr_region *smr_map_get(struct smr_map *map, int64_t id);
-
-int	smr_create(const struct fi_provider *prov, struct smr_map *map,
+int	smr_create(const struct fi_provider *prov,
 		   const struct smr_attr *attr, struct smr_region *volatile *smr);
 void	smr_free(struct smr_region *smr);
 

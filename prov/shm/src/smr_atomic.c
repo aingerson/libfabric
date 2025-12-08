@@ -43,16 +43,16 @@ static void smr_format_rma_ioc(struct smr_cmd *cmd, const struct fi_rma_ioc *rma
 static void smr_generic_atomic_format(struct smr_cmd *cmd, uint8_t datatype,
 				      uint8_t atomic_op)
 {
-	cmd->msg.hdr.datatype = datatype;
-	cmd->msg.hdr.atomic_op = atomic_op;
+	cmd->hdr.datatype = datatype;
+	cmd->hdr.atomic_op = atomic_op;
 }
 
 static void smr_format_inline_atomic(struct smr_cmd *cmd, struct ofi_mr **mr,
 				     const struct iovec *iov, size_t count)
 {
-	cmd->msg.hdr.op_src = smr_src_inline;
+	cmd->hdr.proto = smr_proto_inline;
 
-	cmd->msg.hdr.size = ofi_copy_from_mr_iov(cmd->msg.data.msg,
+	cmd->hdr.size = ofi_copy_from_mr_iov(cmd->data.msg,
 						 SMR_MSG_DATA_LEN, mr,
 						 iov, count, 0);
 }
@@ -77,30 +77,30 @@ static void smr_format_inject_atomic(struct smr_cmd *cmd, struct ofi_mr **desc,
 {
 	size_t comp_size;
 
-	cmd->msg.hdr.op_src = smr_src_inject;
-	cmd->msg.hdr.src_data = smr_get_offset(smr, tx_buf);
+	cmd->hdr.proto = smr_proto_inject;
+	cmd->hdr.tx_ctx = smr_get_offset(smr, tx_buf);
 
-	switch (cmd->msg.hdr.op) {
+	switch (cmd->hdr.op) {
 	case ofi_op_atomic:
-		cmd->msg.hdr.size = ofi_copy_from_mr_iov(tx_buf->data,
+		cmd->hdr.size = ofi_copy_from_mr_iov(tx_buf->data,
 					SMR_INJECT_SIZE, desc, iov, count, 0);
 		break;
 	case ofi_op_atomic_fetch:
-		if (cmd->msg.hdr.atomic_op == FI_ATOMIC_READ)
-			cmd->msg.hdr.size = ofi_total_iov_len(resultv, result_count);
+		if (cmd->hdr.atomic_op == FI_ATOMIC_READ)
+			cmd->hdr.size = ofi_total_iov_len(resultv, result_count);
 		else
-			cmd->msg.hdr.size = ofi_copy_from_mr_iov(tx_buf->data,
+			cmd->hdr.size = ofi_copy_from_mr_iov(tx_buf->data,
 						SMR_INJECT_SIZE, desc, iov,
 						count, 0);
 		break;
 	case ofi_op_atomic_compare:
-		cmd->msg.hdr.size = ofi_copy_from_mr_iov(tx_buf->buf,
+		cmd->hdr.size = ofi_copy_from_mr_iov(tx_buf->buf,
 						SMR_COMP_INJECT_SIZE,
 						desc, iov, count, 0);
 		comp_size = ofi_copy_from_mr_iov(tx_buf->comp,
 					SMR_COMP_INJECT_SIZE,
 					comp_desc, compv, comp_count, 0);
-		if (comp_size != cmd->msg.hdr.size)
+		if (comp_size != cmd->hdr.size)
 			FI_WARN(&smr_prov, FI_LOG_EP_CTRL,
 				"atomic and compare buffer size mismatch\n");
 		break;
@@ -143,11 +143,11 @@ static ssize_t smr_do_atomic_inject(struct smr_ep *ep, struct smr_region *peer_s
 		pend = ofi_freestack_pop(ep->tx_fs);
 		smr_format_pend_resp(pend, cmd, context, res_desc, resultv,
 				     result_count, op_flags, id, resp);
-		cmd->msg.hdr.data = smr_get_offset(ep->region, resp);
+		cmd->hdr.cq_data = smr_get_offset(ep->region, resp);
 		ofi_cirque_commit(smr_resp_queue(ep->region));
 	}
 
-	cmd->msg.hdr.op_flags |= smr_flags;
+	cmd->hdr.op_flags |= smr_flags;
 
 	return FI_SUCCESS;
 }
@@ -157,9 +157,9 @@ static int smr_select_atomic_proto(uint32_t op, uint64_t total_len,
 {
 	if (op == ofi_op_atomic_compare || op == ofi_op_atomic_fetch ||
 	    op_flags & FI_DELIVERY_COMPLETE || total_len > SMR_MSG_DATA_LEN)
-		return smr_src_inject;
+		return smr_proto_inject;
 
-	return smr_src_inline;
+	return smr_proto_inline;
 }
 
 static ssize_t smr_generic_atomic(struct smr_ep *ep,
@@ -193,8 +193,8 @@ static ssize_t smr_generic_atomic(struct smr_ep *ep,
 	if (id < 0)
 		return -FI_EAGAIN;
 
-	peer_id = smr_peer_data(ep->region)[id].addr.id;
-	peer_smr = smr_peer_region(ep->region, id);
+	peer_id = smr_peer_data(ep->region)[id].id;
+	peer_smr = smr_peer_region(ep, id);
 
 	if (smr_peer_data(ep->region)[id].sar_status)
 		return -FI_EAGAIN;
@@ -234,7 +234,7 @@ static ssize_t smr_generic_atomic(struct smr_ep *ep,
 
 	proto = smr_select_atomic_proto(op, total_len, op_flags);
 
-	if (proto == smr_src_inline) {
+	if (proto == smr_proto_inline) {
 		smr_do_atomic_inline(ep, peer_smr, id, peer_id, ofi_op_atomic,
 				     op_flags, datatype, atomic_op,
 				     (struct ofi_mr **) desc, iov, count,
@@ -344,8 +344,8 @@ static ssize_t smr_atomic_inject(struct fid_ep *ep_fid, const void *buf,
 	if (id < 0)
 		return -FI_EAGAIN;
 
-	peer_id = smr_peer_data(ep->region)[id].addr.id;
-	peer_smr = smr_peer_region(ep->region, id);
+	peer_id = smr_peer_data(ep->region)[id].id;
+	peer_smr = smr_peer_region(ep, id);
 
 	if (smr_peer_data(ep->region)[id].sar_status) {
 		ret = -FI_EAGAIN;
