@@ -164,14 +164,6 @@ struct rxd_av {
 	struct ofi_bufpool *peers;
 };
 
-struct rxd_cq;
-typedef int (*rxd_cq_write_fn)(struct rxd_cq *cq,
-			       struct fi_cq_tagged_entry *cq_entry);
-struct rxd_cq {
-	struct util_cq util_cq;
-	rxd_cq_write_fn write_fn;
-};
-
 enum rxd_pool_type {
 	RXD_BUF_POOL_RX,
 	RXD_BUF_POOL_TX,
@@ -238,14 +230,10 @@ static inline struct rxd_av *rxd_ep_av(struct rxd_ep *ep)
 	return container_of(ep->util_ep.av, struct rxd_av, util_av);
 }
 
-static inline struct rxd_cq *rxd_ep_tx_cq(struct rxd_ep *ep)
+static inline fi_addr_t rxd_fi_addr(struct rxd_ep *ep, uint64_t rxd_addr)
 {
-	return container_of(ep->util_ep.tx_cq, struct rxd_cq, util_cq);
-}
-
-static inline struct rxd_cq *rxd_ep_rx_cq(struct rxd_ep *ep)
-{
-	return container_of(ep->util_ep.rx_cq, struct rxd_cq, util_cq);
+	return ((struct rxd_peer *)
+		ofi_bufpool_get_ibuf(rxd_ep_av(ep)->peers, rxd_addr))->fi_addr;
 }
 
 struct rxd_x_entry {
@@ -513,11 +501,6 @@ struct rxd_x_entry *rxd_progress_multi_recv(struct rxd_ep *ep,
 					    size_t total_size);
 void rxd_ep_progress(struct util_ep *util_ep);
 void rxd_cleanup_unexp_msg(struct rxd_unexp_msg *unexp_msg);
-
-/* CQ sub-functions */
-void rxd_cq_report_error(struct rxd_cq *cq, struct fi_cq_err_entry *err_entry);
-void rxd_cq_report_tx_comp(struct rxd_cq *cq, struct rxd_x_entry *tx_entry);
-
 
 int rxd_create_peer(struct rxd_ep *ep, uint64_t rxd_addr);
 

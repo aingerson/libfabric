@@ -46,39 +46,22 @@ static const char *rxd_cq_strerror(struct fid_cq *cq_fid, int prov_errno,
 {
 	struct fid_list_entry *fid_entry;
 	struct util_ep *util_ep;
-	struct rxd_cq *cq;
+	struct util_cq *cq;
 	struct rxd_ep *ep;
 	const char *str;
 
-	cq = container_of(cq_fid, struct rxd_cq, util_cq.cq_fid);
+	cq = container_of(cq_fid, struct util_cq, cq_fid);
 
-	ofi_genlock_lock(&cq->util_cq.ep_list_lock);
-	assert(!dlist_empty(&cq->util_cq.ep_list));
-	fid_entry = container_of(cq->util_cq.ep_list.next,
+	ofi_genlock_lock(&cq->ep_list_lock);
+	assert(!dlist_empty(&cq->ep_list));
+	fid_entry = container_of(cq->ep_list.next,
 				struct fid_list_entry, entry);
 	util_ep = container_of(fid_entry->fid, struct util_ep, ep_fid.fid);
 	ep = container_of(util_ep, struct rxd_ep, util_ep);
 
 	str = fi_cq_strerror(ep->dg_cq, prov_errno, err_data, buf, len);
-	ofi_genlock_unlock(&cq->util_cq.ep_list_lock);
+	ofi_genlock_unlock(&cq->ep_list_lock);
 	return str;
-}
-
-static int rxd_cq_write(struct rxd_cq *cq,
-			struct fi_cq_tagged_entry *cq_entry)
-{
-	return ofi_cq_write(&cq->util_cq, cq_entry->op_context,
-			    cq_entry->flags, cq_entry->len,
-			    cq_entry->buf, cq_entry->data,
-			    cq_entry->tag);
-}
-
-static int rxd_cq_write_signal(struct rxd_cq *cq,
-			       struct fi_cq_tagged_entry *cq_entry)
-{
-	int ret = rxd_cq_write(cq, cq_entry);
-	cq->util_cq.wait->signal(cq->util_cq.wait);
-	return ret;
 }
 
 void rxd_rx_entry_free(struct rxd_ep *ep, struct rxd_x_entry *rx_entry)
@@ -109,20 +92,20 @@ static void rxd_remove_rx_pkt(struct rxd_ep *ep, struct rxd_pkt_entry *pkt_entry
 
 static void rxd_complete_rx(struct rxd_ep *ep, struct rxd_x_entry *rx_entry)
 {
-	struct fi_cq_err_entry err_entry;
-	struct rxd_cq *rx_cq = rxd_ep_rx_cq(ep);
+	struct rxd_peer *peer;
 	int ret;
 
 	if (rx_entry->bytes_done != rx_entry->cq_entry.len) {
-		memset(&err_entry, 0, sizeof(err_entry));
-		err_entry.op_context = rx_entry->cq_entry.op_context;
-		err_entry.flags = rx_entry->cq_entry.flags;
-		err_entry.len = rx_entry->bytes_done;
-		err_entry.err = FI_ETRUNC;
-		err_entry.prov_errno = 0;
-		ret = ofi_cq_write_error(&rx_cq->util_cq, &err_entry);
+		ret = ofi_peer_cq_write_error_trunc(
+					ep->util_ep.rx_cq,
+					rx_entry->cq_entry.op_context,
+					rx_entry->cq_entry.flags,
+					rx_entry->bytes_done,
+					NULL, rx_entry->cq_entry.data,
+					rx_entry->cq_entry.tag, 0);
 		if (ret) {
-			FI_WARN(&rxd_prov, FI_LOG_EP_CTRL, "could not write error entry\n");
+			FI_WARN(&rxd_prov, FI_LOG_EP_CTRL,
+				"could not write error entry\n");
 			return;
 		}
 		goto out;
@@ -130,8 +113,22 @@ static void rxd_complete_rx(struct rxd_ep *ep, struct rxd_x_entry *rx_entry)
 
 	if (rx_entry->cq_entry.flags & FI_REMOTE_CQ_DATA ||
 	    (!(rx_entry->flags & RXD_NO_RX_COMP) &&
-	      rx_entry->cq_entry.flags & FI_RECV))
-		rx_cq->write_fn(rx_cq, &rx_entry->cq_entry);
+	      rx_entry->cq_entry.flags & FI_RECV)) {
+		peer = ofi_bufpool_get_ibuf(rxd_ep_av(ep)->peers,
+					    rx_entry->peer);
+		ret = ofi_peer_cq_write(ep->util_ep.rx_cq,
+					rx_entry->cq_entry.op_context,
+					rx_entry->cq_entry.flags,
+					rx_entry->cq_entry.len,
+					rx_entry->cq_entry.buf,
+					rx_entry->cq_entry.data,
+					rx_entry->cq_entry.tag, peer->fi_addr);
+		if (ret) {
+			FI_WARN(&rxd_prov, FI_LOG_EP_CTRL,
+				"could not write entry\n");
+			goto out;
+		}
+	}
 
 	ofi_ep_rx_cntr_inc_func(&ep->util_ep, (uint8_t) rx_entry->op);
 
@@ -141,13 +138,26 @@ out:
 
 static void rxd_complete_tx(struct rxd_ep *ep, struct rxd_x_entry *tx_entry)
 {
-	struct rxd_cq *tx_cq = rxd_ep_tx_cq(ep);
+	int ret;
 
-	if (!(tx_entry->flags & RXD_NO_TX_COMP))
-		tx_cq->write_fn(tx_cq, &tx_entry->cq_entry);
+	if (!(tx_entry->flags & RXD_NO_TX_COMP)) {
+		ret = ofi_peer_cq_write(ep->util_ep.tx_cq,
+					tx_entry->cq_entry.op_context,
+					tx_entry->cq_entry.flags,
+					tx_entry->cq_entry.len,
+					tx_entry->cq_entry.buf,
+					tx_entry->cq_entry.data,
+					tx_entry->cq_entry.tag, FI_ADDR_UNSPEC);
+		if (ret) {
+			FI_WARN(&rxd_prov, FI_LOG_EP_CTRL,
+				"could not write entry\n");
+			goto out;
+		}
+	}
 
 	ofi_ep_tx_cntr_inc_func(&ep->util_ep, (uint8_t) tx_entry->op);
 
+out:
 	rxd_tx_entry_free(ep, tx_entry);
 }
 
@@ -899,7 +909,6 @@ static struct rxd_x_entry *rxd_get_data_x_entry(struct rxd_ep *ep,
 
 static void rxd_progress_buf_pkts(struct rxd_ep *ep, fi_addr_t peer)
 {
-	struct fi_cq_err_entry err_entry;
 	struct rxd_pkt_entry *pkt_entry;
 	struct rxd_base_hdr *base_hdr;
 	struct rxd_sar_hdr *sar_hdr;
@@ -930,11 +939,19 @@ static void rxd_progress_buf_pkts(struct rxd_ep *ep, fi_addr_t peer)
 					      &tag_hdr, &data_hdr, &rma_hdr, &atom_hdr,
 					      &msg, &msg_size);
 			if (ret) {
-				memset(&err_entry, 0, sizeof(err_entry));
-				err_entry.err = FI_ETRUNC;
-				err_entry.prov_errno = 0;
-				ret = ofi_cq_write_error(&rxd_ep_rx_cq(ep)->util_cq,
-							 &err_entry);
+				/*
+				 * RxD doesn't process anything about the
+				 * message when it identifies a trunctaion error
+				 * so we have nothing to report to the user.
+				 * Probably need to fix these fields to report
+				 * more information about the error'ed message
+				 * (ie buffer, CQ data, tag, etc)
+				 */
+				ret = ofi_peer_cq_write_error_trunc(
+						ep->util_ep.rx_cq,
+						rx_entry->cq_entry.op_context,
+						rx_entry->cq_entry.flags, 0,
+						NULL, 0, 0, 0);
 				if (ret)
 					FI_WARN(&rxd_prov, FI_LOG_EP_CTRL,
 						"could not write error entry\n");
@@ -1211,10 +1228,10 @@ void rxd_handle_error(struct rxd_ep *ep)
 static int rxd_cq_close(struct fid *fid)
 {
 	int ret;
-	struct rxd_cq *cq;
+	struct util_cq *cq;
 
-	cq = container_of(fid, struct rxd_cq, util_cq.cq_fid.fid);
-	ret = ofi_cq_cleanup(&cq->util_cq);
+	cq = container_of(fid, struct util_cq, cq_fid.fid);
+	ret = ofi_cq_cleanup(cq);
 	if (ret)
 		return ret;
 	free(cq);
@@ -1300,19 +1317,18 @@ int rxd_cq_open(struct fid_domain *domain, struct fi_cq_attr *attr,
 		 struct fid_cq **cq_fid, void *context)
 {
 	int ret;
-	struct rxd_cq *cq;
+	struct util_cq *cq;
 
 	cq = calloc(1, sizeof(*cq));
 	if (!cq)
 		return -FI_ENOMEM;
 
-	ret = ofi_cq_init(&rxd_prov, domain, attr, &cq->util_cq,
+	ret = ofi_cq_init(&rxd_prov, domain, attr, cq,
 			  &ofi_cq_progress, context);
 	if (ret)
 		goto free;
 
-	cq->write_fn = cq->util_cq.wait ? rxd_cq_write_signal : rxd_cq_write;
-	*cq_fid = &cq->util_cq.cq_fid;
+	(*cq_fid) = &cq->cq_fid;
 	(*cq_fid)->fid.ops = &rxd_cq_fi_ops;
 	(*cq_fid)->ops = &rxd_cq_ops;
 	return 0;

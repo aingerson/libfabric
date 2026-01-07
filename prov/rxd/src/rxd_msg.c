@@ -138,21 +138,25 @@ static int rxd_ep_discard_recv(struct rxd_ep *rxd_ep, void *context,
 			       struct rxd_unexp_msg *unexp_msg)
 {
 	uint64_t seq = unexp_msg->base_hdr->seq_no;
+	struct rxd_peer_data *peer_data;
 	int ret;
 
 	assert(unexp_msg->tag_hdr);
 	seq += unexp_msg->sar_hdr ? unexp_msg->sar_hdr->num_segs : 1;
 
-	rxd_ep_peer_data(rxd_ep, unexp_msg->base_hdr->peer)->rx_seq_no =
-			MAX(seq, rxd_ep_peer_data(rxd_ep,
-				 unexp_msg->base_hdr->peer)->rx_seq_no);
+	peer_data = rxd_ep_peer_data(rxd_ep, unexp_msg->base_hdr->peer);
+	peer_data->rx_seq_no = MAX(seq, peer_data->rx_seq_no);
 	rxd_ep_send_ack(rxd_ep, unexp_msg->base_hdr->peer);
 
-	ret = ofi_cq_write(rxd_ep->util_ep.rx_cq, context, FI_TAGGED | FI_RECV,
-			   0, NULL, unexp_msg->data_hdr ?
-			   unexp_msg->data_hdr->cq_data : 0,
-			   unexp_msg->tag_hdr->tag);
-
+	ret = ofi_peer_cq_write(rxd_ep->util_ep.rx_cq, context,
+				FI_TAGGED | FI_RECV, 0, NULL,
+				unexp_msg->data_hdr ?
+				unexp_msg->data_hdr->cq_data : 0,
+				unexp_msg->tag_hdr->tag,
+				rxd_fi_addr(rxd_ep, peer_data->peer_addr));
+	if (ret)
+		FI_WARN(&rxd_prov, FI_LOG_EP_CTRL,
+			"could not write entry\n");
 	rxd_cleanup_unexp_msg(unexp_msg);
 
 	return ret;
@@ -163,6 +167,7 @@ static int rxd_peek_recv(struct rxd_ep *rxd_ep, fi_addr_t addr, uint64_t tag,
 			 struct dlist_entry *unexp_list)
 {
 	struct rxd_unexp_msg *unexp_msg;
+
 
 	ofi_genlock_unlock(&rxd_ep->util_ep.lock);
 	rxd_ep_progress(&rxd_ep->util_ep);
@@ -186,11 +191,14 @@ static int rxd_peek_recv(struct rxd_ep *rxd_ep, fi_addr_t addr, uint64_t tag,
 		dlist_remove(&unexp_msg->entry);
 	}
 
-	return ofi_cq_write(rxd_ep->util_ep.rx_cq, context, FI_TAGGED | FI_RECV,
-			    unexp_msg->sar_hdr ? unexp_msg->sar_hdr->size :
-			    unexp_msg->msg_size, NULL, unexp_msg->data_hdr ?
-			    unexp_msg->data_hdr->cq_data : 0,
-			    unexp_msg->tag_hdr->tag);
+	return ofi_peer_cq_write(rxd_ep->util_ep.rx_cq, context,
+				 FI_TAGGED | FI_RECV,
+				 unexp_msg->sar_hdr ? unexp_msg->sar_hdr->size :
+				 unexp_msg->msg_size, NULL,
+				 unexp_msg->data_hdr ?
+				 unexp_msg->data_hdr->cq_data : 0,
+				 unexp_msg->tag_hdr->tag, rxd_fi_addr(rxd_ep,
+				 unexp_msg->base_hdr->peer));
 }
 
 ssize_t rxd_ep_generic_recvmsg(struct rxd_ep *rxd_ep, const struct iovec *iov,
