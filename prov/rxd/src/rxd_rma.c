@@ -90,7 +90,7 @@ static ssize_t rxd_generic_write_inject(struct rxd_ep *rxd_ep,
 		uint32_t rxd_flags)
 {
 	struct rxd_x_entry *tx_entry;
-	fi_addr_t rxd_addr;
+	uint64_t rxd_addr;
 	ssize_t ret = -FI_EAGAIN;
 
 	assert(iov_count <= RXD_IOV_LIMIT && rma_count <= RXD_IOV_LIMIT);
@@ -101,10 +101,12 @@ static ssize_t rxd_generic_write_inject(struct rxd_ep *rxd_ep,
 	if (ofi_cirque_isfull(rxd_ep->util_ep.tx_cq->cirq))
 		goto out;
 
-	rxd_addr = (intptr_t) ofi_idx_lookup(&(rxd_ep_av(rxd_ep)->fi_addr_idx),
-					      RXD_IDX_OFFSET((int) addr));
-	if (!rxd_addr)
+	rxd_addr = *((uint64_t *) ofi_av_get_addr(rxd_ep->util_ep.av, addr));
+	if (rxd_addr == RXD_ADDR_INVALID) {
+		ret = -FI_EINVAL;
 		goto out;
+	}
+
 	ret = rxd_send_rts_if_needed(rxd_ep, rxd_addr);
 	if (ret)
 		goto out;
@@ -117,7 +119,7 @@ static ssize_t rxd_generic_write_inject(struct rxd_ep *rxd_ep,
 		goto out;
 	}
 
-	if (rxd_peer(rxd_ep, rxd_addr)->peer_addr == RXD_ADDR_INVALID)
+	if (rxd_ep_peer_data(rxd_ep, rxd_addr)->peer_addr == RXD_ADDR_INVALID)
 		goto out;
 
 	ret = rxd_start_xfer(rxd_ep, tx_entry);
@@ -137,7 +139,7 @@ rxd_generic_rma(struct rxd_ep *rxd_ep, const struct iovec *iov,
 	uint32_t rxd_flags)
 {
 	struct rxd_x_entry *tx_entry;
-	fi_addr_t rxd_addr;
+	uint64_t rxd_addr;
 	ssize_t ret = -FI_EAGAIN;
 
 	if (rxd_flags & RXD_INJECT)
@@ -151,10 +153,12 @@ rxd_generic_rma(struct rxd_ep *rxd_ep, const struct iovec *iov,
 
 	if (ofi_cirque_isfull(rxd_ep->util_ep.tx_cq->cirq))
 		goto out;
-	rxd_addr = (intptr_t) ofi_idx_lookup(&(rxd_ep_av(rxd_ep)->fi_addr_idx),
-					     RXD_IDX_OFFSET((int) addr));
-	if (!rxd_addr)
+
+	rxd_addr = *((uint64_t *) ofi_av_get_addr(rxd_ep->util_ep.av, addr));
+	if (rxd_addr == RXD_ADDR_INVALID) {
+		ret = -FI_EINVAL;
 		goto out;
+	}
 
 	ret = rxd_send_rts_if_needed(rxd_ep, rxd_addr);
 	if (ret)
@@ -168,7 +172,7 @@ rxd_generic_rma(struct rxd_ep *rxd_ep, const struct iovec *iov,
 		goto out;
 	}
 
-	if (rxd_peer(rxd_ep, rxd_addr)->peer_addr == RXD_ADDR_INVALID)
+	if (rxd_ep_peer_data(rxd_ep, rxd_addr)->peer_addr == RXD_ADDR_INVALID)
 		goto out;
 
 	ret = rxd_start_xfer(rxd_ep, tx_entry);
