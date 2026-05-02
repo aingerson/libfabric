@@ -186,7 +186,7 @@ struct lnx_mr {
 };
 
 struct lnx_mr_key {
-	size_t key_size;
+	uint64_t base_addr;
 	uint64_t prov_keys[];
 };
 

@@ -32,6 +32,28 @@
 
 #include "lnx.h"
 
+static void lnx_get_core_rma(struct lnx_core_ep *cep,
+			     const struct fi_rma_iov *iov,
+			     size_t rma_iov_count, struct fi_rma_iov *core_iov)
+{
+	struct lnx_mr_key *mr_key;
+	uint64_t core_mode = cep->cep_domain->cd_info->domain_attr->mr_mode;
+	uint64_t lnx_mode = cep->cep_parent->le_domain->ld_domain.mr_mode;
+	int i;
+
+	for (i = 0; i < rma_iov_count; i++) {
+		mr_key = (struct lnx_mr_key *) iov[i].key;
+		core_iov[i].key = mr_key->prov_keys[cep->cep_domain->idx];
+		if (core_mode & FI_MR_VIRT_ADDR ||
+		    !(lnx_mode & FI_MR_VIRT_ADDR))
+			core_iov[i].addr = iov[i].addr;
+		else
+			core_iov[i].addr = (uintptr_t) iov[i].addr -
+					(uintptr_t) mr_key->base_addr;
+		core_iov[i].len = iov[i].len;
+	}
+}
+
 static ssize_t lnx_read(struct fid_ep *ep_fid, void *buf, size_t len,
 			void *desc, fi_addr_t src_addr, uint64_t addr,
 			uint64_t key, void *context)
@@ -41,7 +63,8 @@ static ssize_t lnx_read(struct fid_ep *ep_fid, void *buf, size_t len,
 	void *core_desc = NULL;
 	struct lnx_core_ep *cep;
 	fi_addr_t core_addr;
-	struct lnx_mr_key *mr_key = (struct lnx_mr_key *) key;
+	struct fi_rma_iov app_iov = {.addr = addr, .len = len, .key = key};
+	struct fi_rma_iov core_iov;
 
 	lep = container_of(ep_fid, struct lnx_ep, le_ep.ep_fid.fid);
 	if (!lep)
@@ -62,8 +85,10 @@ static ssize_t lnx_read(struct fid_ep *ep_fid, void *buf, size_t len,
 			return rc;
 	}
 
-	rc = fi_read(cep->cep_ep, buf, len, core_desc, core_addr, addr,
-		     mr_key->prov_keys[cep->cep_domain->idx], context);
+	lnx_get_core_rma(cep, &app_iov, 1, &core_iov);
+
+	rc = fi_read(cep->cep_ep, buf, len, core_desc, core_addr, core_iov.addr,
+		     core_iov.key, context);
 	if (!rc)
 		cep->cep_t_stats.st_num_read++;
 
@@ -79,7 +104,8 @@ static ssize_t lnx_readv(struct fid_ep *ep_fid, const struct iovec *iov,
 	void *core_desc[LNX_IOV_LIMIT] = {0};
 	struct lnx_core_ep *cep;
 	fi_addr_t core_addr;
-	struct lnx_mr_key *mr_key = (struct lnx_mr_key *) key;
+	struct fi_rma_iov app_iov = {.addr = addr, .len = 0, .key = key};
+	struct fi_rma_iov core_iov;
 
 	lep = container_of(ep_fid, struct lnx_ep, le_ep.ep_fid.fid);
 	if (!lep)
@@ -99,12 +125,15 @@ static ssize_t lnx_readv(struct fid_ep *ep_fid, const struct iovec *iov,
 			return rc;
 	}
 
-	rc = fi_readv(cep->cep_ep, iov, core_desc, count, core_addr, addr,
-		      mr_key->prov_keys[cep->cep_domain->idx], context);
+	lnx_get_core_rma(cep, &app_iov, 1, &core_iov);
+
+	rc = fi_readv(cep->cep_ep, iov, core_desc, count, core_addr,
+		      core_iov.addr, core_iov.key, context);
 	if (!rc)
 		cep->cep_t_stats.st_num_readv++;
 
-	return rc;}
+	return rc;
+}
 
 static ssize_t lnx_readmsg(struct fid_ep *ep_fid, const struct fi_msg_rma *msg,
 			   uint64_t flags)
@@ -114,10 +143,8 @@ static ssize_t lnx_readmsg(struct fid_ep *ep_fid, const struct fi_msg_rma *msg,
 	void *core_desc[LNX_IOV_LIMIT] = {0};
 	struct lnx_core_ep *cep;
 	fi_addr_t core_addr;
-	struct lnx_mr_key *mr_key;
+	struct fi_rma_iov core_rma_iov[LNX_IOV_LIMIT];
 	struct fi_msg_rma core_msg = *msg;
-	struct fi_rma_iov core_rma_iov[LNX_IOV_LIMIT] = {0};
-	int i;
 
 	lep = container_of(ep_fid, struct lnx_ep, le_ep.ep_fid.fid);
 	if (!lep)
@@ -137,18 +164,15 @@ static ssize_t lnx_readmsg(struct fid_ep *ep_fid, const struct fi_msg_rma *msg,
 			return rc;
 	}
 
-	for (i = 0; i < msg->rma_iov_count; i++) {
-		mr_key = (struct lnx_mr_key *) msg->rma_iov[i].key;
-		core_rma_iov[i] = msg->rma_iov[i];
-		core_rma_iov[i].key = mr_key->prov_keys[cep->cep_domain->idx];
-	}
+	lnx_get_core_rma(cep, msg->rma_iov, msg->rma_iov_count, core_rma_iov);
 	core_msg.rma_iov = core_rma_iov;
 
 	rc = fi_readmsg(cep->cep_ep, &core_msg, flags);
 	if (!rc)
 		cep->cep_t_stats.st_num_readmsg++;
 
-	return rc;}
+	return rc;
+}
 
 static ssize_t lnx_write(struct fid_ep *ep_fid, const void *buf, size_t len,
 			 void *desc, fi_addr_t dest_addr, uint64_t addr,
@@ -159,7 +183,8 @@ static ssize_t lnx_write(struct fid_ep *ep_fid, const void *buf, size_t len,
 	void *core_desc = NULL;
 	struct lnx_core_ep *cep;
 	fi_addr_t core_addr;
-	struct lnx_mr_key *mr_key = (struct lnx_mr_key *) key;
+	struct fi_rma_iov app_iov = {.addr = addr, .len = len, .key = key};
+	struct fi_rma_iov core_iov;
 
 	lep = container_of(ep_fid, struct lnx_ep, le_ep.ep_fid.fid);
 	if (!lep)
@@ -178,8 +203,10 @@ static ssize_t lnx_write(struct fid_ep *ep_fid, const void *buf, size_t len,
 			return rc;
 	}
 
-	rc = fi_write(cep->cep_ep, buf, len, core_desc, core_addr, addr,
-		      mr_key->prov_keys[cep->cep_domain->idx], context);
+	lnx_get_core_rma(cep, &app_iov, 1, &core_iov);
+
+	rc = fi_write(cep->cep_ep, buf, len, core_desc, core_addr,
+		      core_iov.addr, core_iov.key, context);
 	if (!rc)
 		cep->cep_t_stats.st_num_write++;
 
@@ -195,7 +222,8 @@ static ssize_t lnx_writev(struct fid_ep *ep_fid, const struct iovec *iov,
 	void *core_desc[LNX_IOV_LIMIT] = {0};
 	struct lnx_core_ep *cep;
 	fi_addr_t core_addr;
-	struct lnx_mr_key *mr_key = (struct lnx_mr_key *) key;
+	struct fi_rma_iov app_iov = {.addr = addr, .len = 0, .key = key};
+	struct fi_rma_iov core_iov;
 
 	lep = container_of(ep_fid, struct lnx_ep, le_ep.ep_fid.fid);
 	if (!lep)
@@ -215,8 +243,10 @@ static ssize_t lnx_writev(struct fid_ep *ep_fid, const struct iovec *iov,
 			return rc;
 	}
 
-	rc = fi_writev(cep->cep_ep, iov, core_desc, count, core_addr, addr,
-		       mr_key->prov_keys[cep->cep_domain->idx], context);
+	lnx_get_core_rma(cep, &app_iov, 1, &core_iov);
+
+	rc = fi_writev(cep->cep_ep, iov, core_desc, count, core_addr,
+		       core_iov.addr, core_iov.key, context);
 	if (!rc)
 		cep->cep_t_stats.st_num_writev++;
 
@@ -232,10 +262,8 @@ static ssize_t lnx_writemsg(struct fid_ep *ep_fid, const struct fi_msg_rma *msg,
 	void *core_desc[LNX_IOV_LIMIT] = {0};
 	struct lnx_core_ep *cep;
 	fi_addr_t core_addr;
-	struct lnx_mr_key *mr_key;
 	struct fi_msg_rma core_msg = *msg;
-	struct fi_rma_iov core_rma_iov[LNX_IOV_LIMIT] = {0};
-	int i;
+	struct fi_rma_iov core_rma_iov[LNX_IOV_LIMIT];
 
 	lep = container_of(ep_fid, struct lnx_ep, le_ep.ep_fid.fid);
 	if (!lep)
@@ -254,11 +282,7 @@ static ssize_t lnx_writemsg(struct fid_ep *ep_fid, const struct fi_msg_rma *msg,
 		if (rc)
 			return rc;
 	}
-	for (i = 0; i < msg->rma_iov_count; i++) {
-		mr_key = (struct lnx_mr_key *) msg->rma_iov[i].key;
-		core_rma_iov[i] = msg->rma_iov[i];
-		core_rma_iov[i].key = mr_key->prov_keys[cep->cep_domain->idx];
-	}
+	lnx_get_core_rma(cep, msg->rma_iov, msg->rma_iov_count, core_rma_iov);
 	core_msg.rma_iov = core_rma_iov;
 
 	rc = fi_writemsg(cep->cep_ep, &core_msg, flags);
@@ -277,7 +301,7 @@ static ssize_t lnx_writedata(struct fid_ep *ep_fid, const void *buf, size_t len,
 	void *core_desc = NULL;
 	struct lnx_core_ep *cep;
 	fi_addr_t core_addr;
-	struct lnx_mr_key *mr_key = (struct lnx_mr_key *) key;
+	struct fi_rma_iov app_iov = {.addr = addr, .len = len, .key = key};
 
 	lep = container_of(ep_fid, struct lnx_ep, le_ep.ep_fid.fid);
 	if (!lep)
@@ -296,13 +320,15 @@ static ssize_t lnx_writedata(struct fid_ep *ep_fid, const void *buf, size_t len,
 			return rc;
 	}
 
+	lnx_get_core_rma(cep, &app_iov, 1, &app_iov);
+
 	rc = fi_writedata(cep->cep_ep, buf, len, core_desc, data, core_addr,
-			  addr, mr_key->prov_keys[cep->cep_domain->idx],
-			  context);
+			  app_iov.addr, app_iov.key, context);
 	if (!rc)
 		cep->cep_t_stats.st_num_writedata++;
 
-	return rc;}
+	return rc;
+}
 
 static ssize_t lnx_rma_inject(struct fid_ep *ep_fid, const void *buf,
 			      size_t len, fi_addr_t dest_addr, uint64_t addr,
@@ -312,7 +338,8 @@ static ssize_t lnx_rma_inject(struct fid_ep *ep_fid, const void *buf,
 	struct lnx_ep *lep;
 	struct lnx_core_ep *cep;
 	fi_addr_t core_addr;
-	struct lnx_mr_key *mr_key = (struct lnx_mr_key *) key;
+	struct fi_rma_iov app_iov = {.addr = addr, .len = len, .key = key};
+	struct fi_rma_iov core_iov;
 
 	lep = container_of(ep_fid, struct lnx_ep, le_ep.ep_fid.fid);
 	if (!lep)
@@ -325,8 +352,9 @@ static ssize_t lnx_rma_inject(struct fid_ep *ep_fid, const void *buf,
 	       "writing to %" PRIx64 " buf %p len %zu\n",
 	       core_addr, buf, len);
 
-	rc = fi_inject_write(cep->cep_ep, buf, len, core_addr, addr,
-			     mr_key->prov_keys[cep->cep_domain->idx]);
+	lnx_get_core_rma(cep, &app_iov, 1, &core_iov);
+	rc = fi_inject_write(cep->cep_ep, buf, len, core_addr, core_iov.addr,
+			     core_iov.key);
 	if (!rc)
 		cep->cep_t_stats.st_num_inject_write++;
 
@@ -342,7 +370,8 @@ static ssize_t lnx_inject_writedata(struct fid_ep *ep_fid, const void *buf,
 	struct lnx_ep *lep;
 	struct lnx_core_ep *cep;
 	fi_addr_t core_addr;
-	struct lnx_mr_key *mr_key = (struct lnx_mr_key *) key;
+	struct fi_rma_iov app_iov = {.addr = addr, .len = len, .key = key};
+	struct fi_rma_iov core_iov;
 
 	lep = container_of(ep_fid, struct lnx_ep, le_ep.ep_fid.fid);
 	if (!lep)
@@ -355,8 +384,10 @@ static ssize_t lnx_inject_writedata(struct fid_ep *ep_fid, const void *buf,
 	       "writing to %" PRIx64 " buf %p len %zu\n",
 	       core_addr, buf, len);
 
-	rc = fi_inject_writedata(cep->cep_ep, buf, len, data, core_addr, addr,
-				 mr_key->prov_keys[cep->cep_domain->idx]);
+	lnx_get_core_rma(cep, &app_iov, 1, &core_iov);
+
+	rc = fi_inject_writedata(cep->cep_ep, buf, len, data, core_addr,
+				 core_iov.addr, core_iov.key);
 	if (!rc)
 		cep->cep_t_stats.st_num_inject_writedata++;
 

@@ -91,7 +91,7 @@ static int lnx_domain_control(struct fid *fid, int command, void *arg)
 			return -FI_ENOMEM;
 
 		memcpy(mapped->prov_keys, map_raw->raw_key, map_raw->key_size);
-		mapped->key_size = map_raw->key_size;
+		mapped->base_addr = map_raw->base_addr;
 		*map_raw->key = (uint64_t)(uintptr_t)mapped;
 		return FI_SUCCESS;
 	case FI_UNMAP_KEY:
